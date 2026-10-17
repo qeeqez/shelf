@@ -19,10 +19,27 @@ from rich.prompt import Prompt
 
 from . import constants as C
 from .api import ApiError
-from .scraper import BookScraper, extract_book_id
+from .downloader import Downloader, extract_book_id
 from .session import AuthError, OreillySession
 
-DEFAULT_SESSION = os.path.join(user_config_dir("book-scraper"), "cookies.json")
+DEFAULT_SESSION = os.path.join(user_config_dir("shelf"), "cookies.json")
+LEGACY_SESSION = os.path.join(
+    user_config_dir("book-scraper"), "cookies.json"
+)  # pre-rename location
+
+
+def _migrate_session(session_path):
+    """Carry a session saved by the old `book-scraper` config dir forward."""
+    if os.path.isfile(session_path) or not os.path.isfile(LEGACY_SESSION):
+        return
+    os.makedirs(os.path.dirname(session_path), exist_ok=True)
+    try:
+        import shutil
+
+        shutil.copy2(LEGACY_SESSION, session_path)
+        os.chmod(session_path, 0o600)
+    except OSError:
+        pass
 
 
 class Printer:
@@ -174,7 +191,7 @@ def ensure_auth(sess, args, printer):
 
 def build_parser():
     p = argparse.ArgumentParser(
-        prog="book-scraper",
+        prog="shelf",
         description="Download O'Reilly books as EPUB files.",
     )
     auth = p.add_mutually_exclusive_group()
@@ -257,7 +274,10 @@ def main(argv=None):
         printer.error(str(exc))
         return 1
 
-    sess = OreillySession(os.path.expanduser(args.session))
+    session_path = os.path.expanduser(args.session)
+    if session_path == os.path.expanduser(DEFAULT_SESSION):
+        _migrate_session(session_path)
+    sess = OreillySession(session_path)
     try:
         ensure_auth(sess, args, printer)
     except (AuthError, OSError) as exc:
@@ -271,7 +291,7 @@ def main(argv=None):
         sess.save_cookies()
 
     try:
-        BookScraper(
+        Downloader(
             sess,
             args.output,
             kindle=args.kindle,

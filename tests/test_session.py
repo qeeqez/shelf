@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from book_scraper.session import OreillySession
+from shelf.session import OreillySession
 
 
 class TestCookieSave:

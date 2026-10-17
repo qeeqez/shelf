@@ -2,7 +2,7 @@
 
 from lxml import html
 
-from book_scraper.transform import Transformer
+from shelf.transform import Transformer
 
 
 def make_tx(book_id="BID123", base="https://learning.oreilly.com/x/"):

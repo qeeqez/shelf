@@ -210,7 +210,7 @@ class Transformer:
             '<meta charset="utf-8"/>\n'
             f"<title>{escape(title)}</title>\n"
             f"{page_css}"
-            '<link href="Styles/BookScraper.css" rel="stylesheet"'
+            '<link href="Styles/Shelf.css" rel="stylesheet"'
             ' type="text/css"/>'
         )
         return (

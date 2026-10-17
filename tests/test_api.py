@@ -1,8 +1,8 @@
 """Tests for api.py normalization and OPF metadata parsing."""
 
-from book_scraper import constants as C
-from book_scraper.api import OreillyAPI
-from book_scraper.scraper import extract_book_id
+from shelf import constants as C
+from shelf.api import OreillyAPI
+from shelf.downloader import extract_book_id
 
 BOOK_ID = "9798341607675"
 OPF_XML = b"""<?xml version="1.0"?>

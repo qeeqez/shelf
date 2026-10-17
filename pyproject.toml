@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "book-scraper"
+name = "shelf"
 version = "0.1.0"
-description = "Download O'Reilly books you have access to as EPUB files"
+description = "Download books you have access to as EPUB, PDF, and web"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
@@ -23,7 +23,7 @@ dev = [
 ]
 
 [project.scripts]
-book-scraper = "book_scraper.cli:main"
+shelf = "shelf.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["book_scraper*"]
+include = ["shelf*"]

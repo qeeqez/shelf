@@ -2,7 +2,7 @@
 
 from lxml import html
 
-from book_scraper.web import (
+from shelf.web import (
     _chapter_body,
     _first_stem_match,
     _pager,

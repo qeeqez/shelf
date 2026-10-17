@@ -120,7 +120,7 @@ def rewrite_css_urls(content, image_names, font_names):
     return CSS_URL_RE.sub(repl, text).encode("utf-8")
 
 
-class BookScraper:
+class Downloader:
     def __init__(
         self,
         oreilly_session,
@@ -328,7 +328,7 @@ class BookScraper:
             ) as f:
                 css_text += f.read()
         builder.write_named_css(
-            "BookScraper.css",
+            "Shelf.css",
             tx.base_css + _font_faces(builder.fonts_path, css_text),
         )
 

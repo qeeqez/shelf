@@ -81,7 +81,7 @@ def _decrypt_v10(key, blob):
 
 def _open_db_copy(db_path):
     """Copy a (possibly locked/WAL) sqlite db + siblings to a temp file."""
-    tmpdir = tempfile.mkdtemp(prefix="book-scraper-")
+    tmpdir = tempfile.mkdtemp(prefix="shelf-")
     dest = Path(tmpdir) / db_path.name
     for suffix in ("", "-wal", "-shm"):
         src = Path(str(db_path) + suffix)

@@ -7,7 +7,7 @@ import pytest
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from book_scraper.browser_cookies import CookieError, _decrypt_v10
+from shelf.browser_cookies import CookieError, _decrypt_v10
 
 
 def encrypt_v10(key, plaintext):

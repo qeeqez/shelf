@@ -1,6 +1,6 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# book-scraper
+# shelf
 
 Download O'Reilly books you have access to for offline reading. Give it a
 `learning.oreilly.com` book URL (or bare book ID), authenticate once, and it
@@ -32,13 +32,13 @@ uv sync
 ## Usage
 
 ```bash
-uv run book-scraper "https://learning.oreilly.com/library/view/book-title/9781098125974/"
+uv run shelf "https://learning.oreilly.com/library/view/book-title/9781098125974/"
 # or a bare book ID
-uv run book-scraper 9781098125974
+uv run shelf 9781098125974
 ```
 
 On first run it asks how you want to sign in. A verified session is saved to
-`~/Library/Application Support/book-scraper/cookies.json` (written `0600`)
+`~/Library/Application Support/shelf/cookies.json` (written `0600`)
 and reused on later runs, auto re-authing when it expires.
 
 ### Authentication options

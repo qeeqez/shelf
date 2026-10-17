@@ -1,6 +1,6 @@
-"""Tests for scraper.py helpers: basenames, css urls, font faces."""
+"""Tests for downloader.py helpers: basenames, css urls, font faces."""
 
-from book_scraper.scraper import (
+from shelf.downloader import (
     _basename,
     _font_faces,
     _norm,

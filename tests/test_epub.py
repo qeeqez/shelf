@@ -6,7 +6,7 @@ import zipfile
 
 from lxml import etree
 
-from book_scraper.epub import EpubBuilder, _epub_href
+from shelf.epub import EpubBuilder, _epub_href
 
 INFO = {
     "title": "Test Book",

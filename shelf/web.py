@@ -219,7 +219,7 @@ animation-iteration-count:1 !important;transition-duration:.01ms !important}
 
 SITE_JS = """\
 (function () {
-  var key = "bs-sidebar";
+  var key = "shelf-sidebar";
   var stored = null;
   try { stored = localStorage.getItem(key); } catch (e) {}
   var narrow = function () { return window.innerWidth < 960; };
@@ -265,7 +265,7 @@ SITE_JS = """\
   // -- sidebar scroll position ---------------------------------------------
   // Keep the TOC where the reader left it across page switches. Fresh tabs
   // (no saved position) reveal the active chapter instead.
-  var scrollKey = "bs-sidebar-scroll";
+  var scrollKey = "shelf-sidebar-scroll";
   var sb = document.querySelector("nav.sidebar");
   if (sb) {
     var saved = null;
@@ -295,7 +295,7 @@ SITE_JS = """\
     );
   }
   // -- theme (system / light / dark) --------------------------------------
-  var themeKey = "bs-theme";
+  var themeKey = "shelf-theme";
   var themeBtn = document.getElementById("theme-btn");
   var mq =
     window.matchMedia && window.matchMedia("(prefers-color-scheme:dark)");
@@ -359,7 +359,7 @@ SITE_JS = """\
       if (w) delete document.documentElement.dataset.wide;
       else document.documentElement.dataset.wide = "1";
       try {
-        localStorage.setItem("bs-wide", w ? "0" : "1");
+        localStorage.setItem("shelf-wide", w ? "0" : "1");
       } catch (e) {}
       syncWide();
     });
@@ -397,7 +397,7 @@ SITE_JS = """\
     var s = document.createElement("script");
     s.src = "assets/search-index.js";
     s.onload = function () {
-      idx = window.BS_SEARCH || [];
+      idx = window.SHELF_SEARCH || [];
       for (var i = 0; i < idx.length; i++) {
         idx[i]._tl = idx[i].t.toLowerCase();
         idx[i]._sl = idx[i].s.toLowerCase();
@@ -595,9 +595,9 @@ PAGE = """\
 <html lang="{lang}">
 <head>
 <meta charset="utf-8"/>
-<script>(function(){var t="system";try{t=localStorage.getItem("bs-theme")||"system"}catch(e){}
+<script>(function(){var t="system";try{t=localStorage.getItem("shelf-theme")||"system"}catch(e){}
 document.documentElement.dataset.theme=t;
-try{if(localStorage.getItem("bs-wide")==="1")document.documentElement.dataset.wide="1"}catch(e){}})()</script>
+try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset.wide="1"}catch(e){}})()</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
@@ -858,7 +858,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     # Client-side search index
     entries = _search_index(flat, oebps_dir)
     with open(os.path.join(assets, "search-index.js"), "w") as f:
-        f.write("window.BS_SEARCH=")
+        f.write("window.SHELF_SEARCH=")
         f.write(json.dumps(entries, ensure_ascii=False, separators=(",", ":")))
         f.write(";")
 
