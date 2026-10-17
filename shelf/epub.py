@@ -4,6 +4,7 @@ import os
 import re
 import zipfile
 from datetime import UTC, datetime
+from html import unescape
 from urllib.parse import quote
 from xml.sax.saxutils import escape
 
@@ -16,9 +17,9 @@ CONTAINER_XML = (
     "</container>"
 )
 
-# {0}=id {1}=title {2}=authors {3}=description {4}=subjects {5}=publisher
-# {6}=rights {7}=date {8}=cover-meta {9}=manifest {10}=spine {11}=cover-href
-# {12}=dcterms:modified
+# {0}=id {1}=title {2}=authors {8}=cover-meta {9}=manifest {10}=spine
+# {11}=cover-href {12}=dcterms:modified {13}=optional dc + identifier metas
+# {14}=a11y metas {15}=language
 CONTENT_OPF = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid"'
@@ -31,10 +32,7 @@ CONTENT_OPF = (
     "<dc:language>{15}</dc:language>\n"
     "{13}"
     '<meta property="dcterms:modified">{12}</meta>\n'
-    '<meta property="schema:accessMode">textual,visual</meta>\n'
-    '<meta property="schema:accessibilityFeature">alternativeText,'
-    "structuralNavigation,tableOfContents{14}</meta>\n"
-    '<meta property="schema:accessibilityHazard">none</meta>\n'
+    "{14}"
     '<meta property="ibooks:specified-fonts">true</meta>\n'
     "{8}"
     "</metadata>\n<manifest>\n"
@@ -181,6 +179,16 @@ def _epub_uri(filename, fragment=""):
     if fragment:
         uri += "#" + quote(fragment)
     return uri
+
+
+def _plain_text(markup):
+    # The API embeds HTML markup in the description, but readers render
+    # dc:description as flat text — strip tags (entity-escaped text like
+    # "&lt;b&gt;" is meant literally, so unescape only after stripping),
+    # collapse the whitespace paragraphs leave behind and close the gap a
+    # removed inline tag leaves before punctuation.
+    text = " ".join(unescape(re.sub(r"<[^>]+>", " ", markup or "")).split())
+    return re.sub(r" ([,.;:!?)\]])", r"\1", text)
 
 
 class EpubBuilder:
@@ -333,7 +341,9 @@ class EpubBuilder:
             optional_dc.append(f"<dc:date>{escape(self.book_info['issued'])}</dc:date>")
         if self.book_info.get("description"):
             optional_dc.append(
-                f"<dc:description>{escape(self.book_info['description'])}</dc:description>"
+                "<dc:description>{}</dc:description>".format(
+                    escape(_plain_text(self.book_info["description"]))
+                )
             )
         optional_dc.append(subjects)
         if self.book_info.get("publishers"):
@@ -347,10 +357,36 @@ class EpubBuilder:
                 f"<dc:rights>{escape(self.book_info['rights'])}</dc:rights>"
             )
         ident, refine = self._identifier()
-        if refine:
-            optional_dc.insert(0, refine)
+        optional_dc = [
+            m for m in (refine, self._secondary_identifier(ident)) if m
+        ] + optional_dc
         modified = self.book_info.get("modified") or datetime.now(UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+        # EPUB Accessibility discovery metadata: one <meta> per schema.org
+        # value (the spec form — some tools don't split comma-joined
+        # values). 100% image alt coverage in the source chapters backs the
+        # alternativeText feature and the "textual" sufficient mode.
+        features = ["alternativeText", "structuralNavigation", "tableOfContents"]
+        if has_mathml:
+            features.append("MathML")
+        if has_index:
+            features.append("index")
+        if self._page_list(chapters):
+            features.append("pageNavigation")
+        a11y = "".join(
+            f'<meta property="schema:accessibilityFeature">{f}</meta>\n'
+            for f in features
+        )
+        a11y += (
+            '<meta property="schema:accessMode">textual</meta>\n'
+            '<meta property="schema:accessMode">visual</meta>\n'
+            '<meta property="schema:accessModeSufficient">textual</meta>\n'
+            '<meta property="schema:accessibilityHazard">none</meta>\n'
+            '<meta property="schema:accessibilitySummary">This publication'
+            " includes alternative text for images and supports structural"
+            " navigation.</meta>\n"
         )
 
         return CONTENT_OPF.format(
@@ -368,10 +404,8 @@ class EpubBuilder:
             _epub_uri(first_chapter),
             modified,
             "\n".join(optional_dc) + "\n",
-            (",MathML" if has_mathml else "")
-            + (",index" if has_index else "")
-            + (",pageNavigation" if self._page_list(chapters) else ""),
-            escape(self.book_info.get("language") or "en-US"),
+            a11y,
+            escape(self.book_info.get("language") or "en"),
         )
 
     def _first_href(self, item):
@@ -443,6 +477,23 @@ class EpubBuilder:
                 ),
             )
         return self.book_info.get("identifier") or f"urn:orm:book:{self.book_id}", ""
+
+    def _secondary_identifier(self, primary):
+        """book_info carries the O'Reilly catalog id (`identifier`, the
+        ebook ISBN on ISBN-shaped values) alongside the print `isbn`, but
+        only the isbn reaches the OPF. Emit it as a second dc:identifier so
+        library tools can cross-reference both."""
+        raw = (self.book_info.get("identifier") or "").strip()
+        if not raw or raw == primary:
+            return ""
+        digits = re.sub(r"[^0-9Xx]", "", raw)
+        isbn_digits = re.sub(r"[^0-9Xx]", "", self.book_info.get("isbn") or "")
+        if digits and digits == isbn_digits:
+            return ""
+        urn = f"urn:isbn:{raw}" if len(digits) in (10, 13) else f"urn:orm:book:{raw}"
+        if urn == primary:
+            return ""
+        return f"<dc:identifier>{escape(urn)}</dc:identifier>"
 
     def _page_list(self, chapters):
         """(page label, filename) at each chapter start, from the API's
@@ -596,7 +647,9 @@ class EpubBuilder:
 
         if os.path.isfile(epub_path):
             os.remove(epub_path)
-        with zipfile.ZipFile(epub_path, "w") as z:
+        # Deflate level 9: an EPUB is written once and read many times, so
+        # pay the extra CPU now for a smaller artifact.
+        with zipfile.ZipFile(epub_path, "w", compresslevel=9) as z:
             z.writestr(
                 zipfile.ZipInfo("mimetype"),
                 "application/epub+zip",

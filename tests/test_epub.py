@@ -437,6 +437,82 @@ class TestContentOpf:
         assert 'id="chapter_nav"' in opf
         assert '<itemref idref="chapter_nav"/>' in opf
 
+    def test_description_markup_is_stripped(self, tmp_path):
+        """The API embeds HTML in the description; readers show
+        dc:description as flat text, so tags must go and entities decode."""
+        info = dict(
+            INFO, description="<div><p>Hello &amp; <em>bye</em>.</p><p>Next.</p></div>"
+        )
+        b = make_builder(tmp_path, info)
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
+        )
+        assert "<dc:description>Hello &amp; bye. Next.</dc:description>" in opf
+        assert "&lt;div&gt;" not in opf
+
+    def test_secondary_identifier_emits_ebook_isbn(self, tmp_path):
+        """The O'Reilly catalog id is ISBN-shaped on real books — emit it
+        as a second identifier so library tools see both ISBNs."""
+        info = dict(INFO, identifier="9781491903063")
+        b = make_builder(tmp_path, info)
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
+        )
+        ids = re.findall(r"<dc:identifier[^>]*>([^<]+)</dc:identifier>", opf)
+        assert ids == ["urn:isbn:1234567890", "urn:isbn:9781491903063"]
+
+    def test_secondary_identifier_dedup_and_non_isbn(self, tmp_path):
+        """No duplicate when identifier equals the isbn; non-ISBN catalog
+        ids fall back to the urn:orm:book scheme."""
+        b = make_builder(tmp_path, dict(INFO, identifier="1234567890"))
+        self._write_chapter(b, "ch01.xhtml")
+        chapters = [{"filename": "ch01.xhtml", "title": "C1"}]
+        opf = b._content_opf(chapters, "", "ch01.xhtml")
+        assert opf.count("<dc:identifier") == 1
+
+        b = make_builder(tmp_path, dict(INFO, identifier="B00TEST123"))
+        opf = b._content_opf(chapters, "", "ch01.xhtml")
+        assert "<dc:identifier>urn:orm:book:B00TEST123</dc:identifier>" in opf
+
+    def test_secondary_identifier_absent_without_field(self, tmp_path):
+        """No identifier field → a single dc:identifier (test INFO)."""
+        b = make_builder(tmp_path)
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
+        )
+        assert opf.count("<dc:identifier") == 1
+
+    def test_a11y_metadata_spec_form(self, tmp_path):
+        """One <meta> per schema.org a11y value (the spec form), plus the
+        accessModeSufficient/summary metadata EPUB Accessibility expects."""
+        b = make_builder(tmp_path)
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
+        )
+        assert '<meta property="schema:accessMode">textual</meta>' in opf
+        assert '<meta property="schema:accessMode">visual</meta>' in opf
+        assert '<meta property="schema:accessModeSufficient">textual</meta>' in opf
+        assert "schema:accessibilitySummary" in opf
+        assert 'schema:accessibilityFeature">alternativeText<' in opf
+        # Not the comma-joined shorthand form.
+        assert "textual,visual" not in opf
+
+    def test_a11y_features_stay_conditional(self, tmp_path):
+        """MathML/index/pageNavigation features appear only when the book
+        actually contains them — now as separate meta elements."""
+        b = make_builder(tmp_path)
+        self._write_chapter(b, "ch01.xhtml")
+        chapters = [{"filename": "ch01.xhtml", "title": "C1", "virtual_pages": 5}]
+        opf = b._content_opf(chapters, "", "ch01.xhtml")
+        assert '<meta property="schema:accessibilityFeature">MathML</meta>' not in opf
+        assert (
+            '<meta property="schema:accessibilityFeature">pageNavigation</meta>' in opf
+        )
+
 
 class TestItemId:
     def test_ids_are_ncnames(self):
