@@ -49,11 +49,12 @@ a{color:var(--accent);text-decoration:none}
 padding:8px 14px;border-radius:6px}
 a:hover{text-decoration:underline}
 header.top{position:fixed;top:0;left:0;right:0;height:56px;display:flex;
-align-items:center;padding:0 12px;background:var(--chrome);
+align-items:center;gap:6px;padding:0 12px;background:var(--chrome);
 border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
 header.top button:hover{background:var(--hover)}
+#theme-btn{width:36px;padding:6px 0;text-align:center}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
 header.top .booktitle a{color:var(--fg)}
