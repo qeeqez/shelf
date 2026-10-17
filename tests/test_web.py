@@ -3,11 +3,11 @@
 from lxml import html
 
 from shelf.web import (
-    _chapter_body,
+    _chapter_data,
     _first_stem_match,
     _pager,
     _rewrite_links,
-    _search_index,
+    _section_entries,
     _sidebar_ul,
 )
 
@@ -148,8 +148,8 @@ XHTML_PAGE = """<?xml version="1.0" encoding="utf-8"?>
 class TestSearchIndex:
     def test_sections_split_with_deep_links(self, tmp_path):
         (tmp_path / "ch01.xhtml").write_text(XHTML_PAGE)
-        chapters = [{"filename": "ch01.html", "title": "Chapter 1"}]
-        entries = _search_index(chapters, str(tmp_path))
+        _, _, body, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
+        entries = _section_entries(body, "Chapter 1", "ch01.html")
         urls = [e["u"] for e in entries]
         assert "ch01.html#ch01_sec_one" in urls
         assert "ch01.html#ch01_sec_two" in urls
@@ -163,10 +163,8 @@ class TestSearchIndex:
             '<div epub:type="index" id="ix"><h1>Index</h1></div>'
             "</body></html>"
         )
-        entries = _search_index(
-            [{"filename": "ix01.html", "title": "Index"}], str(tmp_path)
-        )
-        assert entries == []
+        _, _, _, is_index = _chapter_data(str(tmp_path / "ix01.xhtml"))
+        assert is_index
 
     def test_markup_noise_not_indexed(self, tmp_path):
         """style/script/math text is markup, not prose — keep it out."""
@@ -177,9 +175,8 @@ class TestSearchIndex:
             '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>zzq</mi></math>'
             "</div></body></html>"
         )
-        entries = _search_index(
-            [{"filename": "ch01.html", "title": "C"}], str(tmp_path)
-        )
+        _, _, body, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
+        entries = _section_entries(body, "C", "ch01.html")
         text = " ".join(e["s"] for e in entries)
         assert "real prose" in text
         assert "color:red" not in text
@@ -193,7 +190,7 @@ class TestChapterBody:
             '<?xml version="1.0"?><html><head><style>body{display:table}'
             '</style></head><body><div id="Cover">x</div></body></html>'
         )
-        styles, body = _chapter_body(str(tmp_path / "cover.xhtml"))
+        styles, body, _, _ = _chapter_data(str(tmp_path / "cover.xhtml"))
         assert "display:table" in styles
         assert 'id="Cover"' in body
 
@@ -205,7 +202,7 @@ class TestChapterBody:
             '<img src="Images/i.png"/><a href="Fonts/f.otf">f</a>'
             '<a href="ch02.xhtml">next</a></div></body></html>'
         )
-        _, body = _chapter_body(str(tmp_path / "ch01.xhtml"))
+        _, body, _, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
         assert 'src="../Images/i.png"' in body
         assert 'href="../Fonts/f.otf"' in body
         assert 'href="ch02.html"' in body  # same-dir link stays flat
@@ -217,6 +214,6 @@ class TestChapterBody:
             '<?xml version="1.0"?><html><body><div id="c">'
             "<style>p{color:blue}</style><p>x</p></div></body></html>"
         )
-        styles, body = _chapter_body(str(tmp_path / "ch01.xhtml"))
+        styles, body, _, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
         assert "color:blue" in body
         assert "color:blue" not in styles

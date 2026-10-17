@@ -271,6 +271,11 @@ class Downloader:
             # can be re-fetched by URL; restore it before the missing check.
             tx.css = list(meta.get("css", []))
             tx.cover = meta.get("cover") or None
+            # Chapter manifest properties / epub:type flags captured during
+            # the original transform — without them _content_opf falls back
+            # to re-reading every chapter file from disk.
+            builder.chapter_props.update(meta.get("chapter_props", {}))
+            builder.chapter_types.update(meta.get("chapter_types", {}))
 
         # Same-basename chapters would clobber each other when written flat.
         seen_names = set()
@@ -520,6 +525,13 @@ class Downloader:
 
         self.log("Building EPUB...")
         toc = meta["toc"] if meta else api.get_toc()
+        epub_path = os.path.join(
+            self.output_dir, "{}.epub".format(escape_dirname(info["title"]))
+        )
+        builder.finalize(chapters, toc, tx.cover, epub_path)
+        self.log(f"Done: {epub_path}")
+        # Save after finalize: _content_opf memoizes props/epub:type for
+        # chapters it had to disk-scan, so the maps are only complete now.
         # Persist everything the listing calls provided: the next run can
         # rebuild entirely offline (see offline_ready / _load_meta).
         _save_meta(
@@ -531,16 +543,13 @@ class Downloader:
                 "chapters": chapters,
                 "toc": toc,
                 "css": tx.css,
+                "chapter_props": builder.chapter_props,
+                "chapter_types": builder.chapter_types,
                 "images": images,
                 "fonts": fonts,
                 "cover": tx.cover or "",
             },
         )
-        epub_path = os.path.join(
-            self.output_dir, "{}.epub".format(escape_dirname(info["title"]))
-        )
-        builder.finalize(chapters, toc, tx.cover, epub_path)
-        self.log(f"Done: {epub_path}")
 
         if self.validate:
             self.log("Validating EPUB...")

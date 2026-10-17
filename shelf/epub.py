@@ -90,6 +90,20 @@ IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
+# Formats that deflate can't shrink — stored raw so zipping stays cheap.
+STORED_SUFFIXES = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".woff",
+    ".woff2",
+    ".mp3",
+    ".mp4",
+    ".zip",
+)
+
 FONT_MEDIA_TYPES = {
     "ttf": "font/ttf",
     "otf": "font/otf",
@@ -229,6 +243,7 @@ class EpubBuilder:
                         props.append("remote-resources")
                 except OSError:
                     pass
+                self.chapter_props[name] = props
             if "mathml" in props:
                 has_mathml = True
             props_attr = ' properties="' + " ".join(props) + '"' if props else ""
@@ -440,19 +455,20 @@ class EpubBuilder:
         return "<ol>\n" + "\n".join(lis) + "\n</ol>"
 
     def _chapter_epub_type(self, filename):
-        etype = self.chapter_types.get(_epub_href(filename))
+        name = _epub_href(filename)
+        etype = self.chapter_types.get(name)
         if etype is not None:
             return etype
+        etype = ""
         try:
-            with open(
-                self.chapter_path(_epub_href(filename)),
-                encoding="utf-8",
-                errors="replace",
-            ) as f:
+            with open(self.chapter_path(name), encoding="utf-8", errors="replace") as f:
                 m = re.search(r'epub:type="([a-z-]+)"', f.read(65536))
-                return m.group(1) if m else ""
+                if m:
+                    etype = m.group(1)
         except OSError:
-            return ""
+            pass
+        self.chapter_types[name] = etype
+        return etype
 
     def _nav_xhtml(self, toc_items, chapters):
         landmarks = []
@@ -545,5 +561,12 @@ class EpubBuilder:
                             continue
                         full = os.path.join(root, name)
                         arc = os.path.relpath(full, self.work_dir)
-                        z.write(full, arc, compress_type=zipfile.ZIP_DEFLATED)
+                        # Already-compressed payloads gain nothing from
+                        # deflate but still pay its CPU cost on every build.
+                        ctype = (
+                            zipfile.ZIP_STORED
+                            if name.lower().endswith(STORED_SUFFIXES)
+                            else zipfile.ZIP_DEFLATED
+                        )
+                        z.write(full, arc, compress_type=ctype)
         return epub_path

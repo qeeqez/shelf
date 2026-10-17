@@ -695,11 +695,15 @@ XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
 ASSET_DIRS = ("Images/", "Fonts/", "Styles/")
 
 
-def _chapter_body(path):
+def _chapter_data(path):
+    """One parse of a chapter file → (extra_head, body_html, body_element,
+    is_index). Callers render body_html and index body_element — parsing
+    twice per chapter (once for each) was the generator's hot spot."""
     doc = html.parse(path).getroot()
+    is_index = any(el.get("epub:type") == "index" for el in doc.iter())
     body = doc.find("body")
     if body is None:
-        return "", ""
+        return "", "", None, is_index
     _rewrite_links(body)
     for img in body.iter("img"):
         img.set("loading", "lazy")
@@ -732,7 +736,7 @@ def _chapter_body(path):
     body_html = (body.text or "") + "".join(
         html.tostring(el, encoding="unicode") for el in body
     )
-    return styles, body_html
+    return styles, body_html, body, is_index
 
 
 SECTION_TAGS = frozenset(("h1", "h2", "h3", "h4"))
@@ -750,42 +754,42 @@ def _nearest_id(el):
     return ""
 
 
-def _search_index(chapters, oebps_dir):
-    """One entry per heading-delimited section: {t: title, u: url, s: text}."""
+def _section_entries(body, chapter_title, page):
+    """One entry per heading-delimited section: {t: title, u: url, s: text}.
+
+    Text inside markup-noise elements (style/script/math/svg) is skipped —
+    the set is precomputed once so the check is O(1) per element instead of
+    an ancestor scan."""
+    noise_roots, noise = set(), set()
+    for tag in SKIP_TEXT_TAGS:
+        for el in body.iter(tag):
+            noise_roots.add(el)
+            noise.add(el)
+            noise.update(el.iterdescendants())
+
     entries = []
-    for ch in chapters:
-        path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
-        if not os.path.isfile(path):
-            continue
-        with open(path, "rb") as f:
-            raw = f.read()
-        if b'epub:type="index"' in raw:
-            continue  # the index chapter is already an index
-        body = html.parse(path).getroot().find("body")
-        if body is None:
-            continue
-        page = _page_name(ch["filename"])
-        cur = {"t": ch["title"], "u": page, "s": []}
-        for el in body.iter():
-            if el.tag in SECTION_TAGS:
-                text = " ".join(" ".join(cur["s"]).split())
-                if text:
-                    entries.append({"t": cur["t"], "u": cur["u"], "s": text})
-                frag = _nearest_id(el)
-                title = " ".join("".join(el.itertext()).split()) or cur["t"]
-                cur = {"t": title, "u": page + (f"#{frag}" if frag else ""), "s": []}
-            # Skip text belonging to markup-noise elements — including text
-            # nested deeper inside them (e.g. <mi> inside <math>).
-            noise = el.tag in SKIP_TEXT_TAGS or any(
-                a.tag in SKIP_TEXT_TAGS for a in el.iterancestors()
-            )
-            if el.text and not noise:
-                cur["s"].append(el.text)
-            if el.tail:
+    cur = {"t": chapter_title, "u": page, "s": []}
+    for el in body.iter():
+        if el in noise:
+            # A noise root's tail is ordinary text after it; descendants'
+            # tails are still inside the noise.
+            if el in noise_roots and el.tail:
                 cur["s"].append(el.tail)
-        text = " ".join(" ".join(cur["s"]).split())
-        if text:
-            entries.append({"t": cur["t"], "u": cur["u"], "s": text})
+            continue
+        if el.tag in SECTION_TAGS:
+            text = " ".join(" ".join(cur["s"]).split())
+            if text:
+                entries.append({"t": cur["t"], "u": cur["u"], "s": text})
+            frag = _nearest_id(el)
+            title = " ".join("".join(el.itertext()).split()) or cur["t"]
+            cur = {"t": title, "u": page + (f"#{frag}" if frag else ""), "s": []}
+        if el.text:
+            cur["s"].append(el.text)
+        if el.tail:
+            cur["s"].append(el.tail)
+    text = " ".join(" ".join(cur["s"]).split())
+    if text:
+        entries.append({"t": cur["t"], "u": cur["u"], "s": text})
     return entries
 
 
@@ -925,11 +929,16 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         f.write(toc_js)
 
     flat = [c for c in chapters]
+    entries = []  # search index — collected here to reuse the parse
     for i, ch in enumerate(flat):
         path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
         if not os.path.isfile(path):
             continue
-        styles, body = _chapter_body(path)
+        styles, body, body_el, is_index = _chapter_data(path)
+        if body_el is not None and not is_index:
+            entries.extend(
+                _section_entries(body_el, ch["title"], _page_name(ch["filename"]))
+            )
         rel_links = ""
         if i > 0:
             rel_links += (
@@ -955,7 +964,6 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         )
 
     # Client-side search index
-    entries = _search_index(flat, oebps_dir)
     with open(os.path.join(assets, "search-index.js"), "w") as f:
         f.write("window.SHELF_SEARCH=")
         f.write(json.dumps(entries, ensure_ascii=False, separators=(",", ":")))
