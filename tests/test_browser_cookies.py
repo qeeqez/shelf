@@ -1,6 +1,5 @@
 """Tests for Chromium cookie decryption (v10 blobs)."""
 
-import os
 from hashlib import sha256
 
 import pytest
@@ -18,7 +17,10 @@ def encrypt_v10(key, plaintext):
     return b"v10" + enc.update(padded) + enc.finalize()
 
 
-KEY = os.urandom(16)
+# Fixed keys — a random wrong key flukes into valid padding/UTF-8 rarely
+# enough to be invisible until it flakes CI.
+KEY = b"shelf-test-key-0"
+WRONG_KEY = b"shelf-test-key-X"
 
 
 class TestDecryptV10:
@@ -34,4 +36,4 @@ class TestDecryptV10:
     def test_wrong_key_raises(self):
         blob = encrypt_v10(KEY, b"secret")
         with pytest.raises((CookieError, ValueError)):
-            _decrypt_v10(os.urandom(16), blob)
+            _decrypt_v10(WRONG_KEY, blob)

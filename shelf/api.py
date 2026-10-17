@@ -212,6 +212,9 @@ class OreillyAPI:
             "fonts": assets.get("fonts", []),
             "stylesheets": [{"url": u} for u in assets.get("stylesheets", [])],
             "site_styles": [],
+            # Per-chapter count for the page-list nav; source HTML carries no
+            # intra-chapter page anchors, so granularity is chapter starts.
+            "virtual_pages": c.get("virtual_pages", 0),
         }
 
     def get_book_chapters(self):

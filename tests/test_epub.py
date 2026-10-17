@@ -69,7 +69,7 @@ class TestTocNcx:
 
     def test_same_target_shares_playorder(self):
         b = make_builder("/tmp/x")
-        ncx = b._toc_ncx(toc_items())
+        ncx = b._toc_ncx(toc_items(), [])
         root = etree.fromstring(ncx.encode())
         ns = "http://www.daisy.org/z3986/2005/ncx/"
         by_src = {}
@@ -80,11 +80,65 @@ class TestTocNcx:
 
     def test_uid_matches_identifier(self):
         b = make_builder("/tmp/x")
-        ncx = b._toc_ncx(toc_items())
+        ncx = b._toc_ncx(toc_items(), [])
         # dtb:uid must equal dc:identifier exactly — both go through
         # _identifier() so the urn:isbn scheme can't drift apart.
         assert 'content="urn:isbn:1234567890" name="dtb:uid"' in ncx
         assert "ID:ISBN:" not in ncx
+
+    def test_page_list_targets(self):
+        """virtual_pages from the API produce a pageList with cumulative
+        page numbers at each chapter start."""
+        b = make_builder("/tmp/x")
+        chapters = [
+            {"filename": "ch01.html", "virtual_pages": 10},
+            {"filename": "ch02.html", "virtual_pages": 5},
+            {"filename": "ch03.html", "virtual_pages": 20},
+        ]
+        ncx = b._toc_ncx(toc_items(), chapters)
+        assert '<pageList id="pageList" class="pagelist">' in ncx
+        assert 'id="pageTarget-1" type="normal" value="1"' in ncx
+        assert 'id="pageTarget-11" type="normal" value="11"' in ncx
+        assert 'id="pageTarget-16" type="normal" value="16"' in ncx
+        assert 'content src="ch02.xhtml"' in ncx
+        assert 'content="35" name="dtb:totalPageCount"' in ncx
+        # pageTargets keep their own unique numbering, disjoint from the
+        # navPoint orders (which may share orders for duplicate targets).
+        ns = "http://www.daisy.org/z3986/2005/ncx/"
+        root = etree.fromstring(ncx.encode())
+        np_orders = {int(np.get("playOrder")) for np in root.iter(f"{{{ns}}}navPoint")}
+        pt_orders = [
+            int(pt.get("playOrder")) for pt in root.iter(f"{{{ns}}}pageTarget")
+        ]
+        assert len(pt_orders) == len(set(pt_orders))
+        assert not np_orders & set(pt_orders)
+
+    def test_page_list_absent_without_counts(self):
+        """Chapters lacking virtual_pages (old caches) emit no pageList."""
+        b = make_builder("/tmp/x")
+        chapters = [{"filename": "ch01.html"}, {"filename": "ch02.html"}]
+        ncx = b._toc_ncx(toc_items(), chapters)
+        assert "<pageList" not in ncx
+        nav = b._nav_xhtml(toc_items(), chapters)
+        assert "page-list" not in nav
+
+    def test_page_list_nav_hidden(self):
+        b = make_builder("/tmp/x")
+        chapters = [
+            {"filename": "ch01.html", "virtual_pages": 10},
+            {"filename": "ch02.html", "virtual_pages": 5},
+        ]
+        nav = b._nav_xhtml(toc_items(), chapters)
+        assert '<nav epub:type="page-list" hidden="hidden">' in nav
+        assert '<a href="ch02.xhtml">11</a>' in nav
+
+    def test_page_navigation_a11y_feature(self):
+        b = make_builder("/tmp/x")
+        chapters = [{"filename": "ch01.html", "virtual_pages": 3}]
+        opf = b._content_opf(chapters, None, "ch01.html")
+        assert "pageNavigation" in opf
+        opf = b._content_opf([{"filename": "ch01.html"}], None, "ch01.html")
+        assert "pageNavigation" not in opf
 
     def test_container_heading_uses_first_child_href(self):
         """TOC container headings have no href — the navPoint must point at

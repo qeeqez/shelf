@@ -46,7 +46,8 @@ CONTENT_OPF = (
     "</package>"
 )
 
-# {0}=id {1}=depth {2}=title {3}=author {4}=navmap
+# {0}=id {1}=depth {2}=title {3}=author {4}=navmap {5}=totalPages
+# {6}=maxPageNumber {7}=pageList
 TOC_NCX = (
     '<?xml version="1.0" encoding="utf-8" standalone="no" ?>\n'
     '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN"'
@@ -55,16 +56,17 @@ TOC_NCX = (
     "<head>\n"
     '<meta content="{0}" name="dtb:uid"/>\n'
     '<meta content="{1}" name="dtb:depth"/>\n'
-    '<meta content="0" name="dtb:totalPageCount"/>\n'
-    '<meta content="0" name="dtb:maxPageNumber"/>\n'
+    '<meta content="{5}" name="dtb:totalPageCount"/>\n'
+    '<meta content="{6}" name="dtb:maxPageNumber"/>\n'
     "</head>\n"
     "<docTitle><text>{2}</text></docTitle>\n"
     "<docAuthor><text>{3}</text></docAuthor>\n"
     "<navMap>{4}</navMap>\n"
+    "{7}"
     "</ncx>"
 )
 
-# {0}=title {1}=toc-ol {2}=landmarks-ol
+# {0}=title {1}=toc-ol {2}=landmarks-ol {3}=lang {4}=page-list nav or ""
 NAV_XHTML = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     "<!DOCTYPE html>\n"
@@ -75,6 +77,7 @@ NAV_XHTML = (
     '<nav epub:type="toc" id="toc">\n<h1>{0}</h1>\n{1}</nav>\n'
     '<nav epub:type="landmarks" hidden="hidden">\n'
     "<h1>Landmarks</h1>\n<ol>\n{2}</ol>\n</nav>\n"
+    "{4}"
     "</body>\n</html>"
 )
 
@@ -316,7 +319,9 @@ class EpubBuilder:
             _epub_href(first_chapter),
             modified,
             "\n".join(optional_dc) + "\n",
-            (",MathML" if has_mathml else "") + (",index" if has_index else ""),
+            (",MathML" if has_mathml else "")
+            + (",index" if has_index else "")
+            + (",pageNavigation" if self._page_list(chapters) else ""),
             escape(self.book_info.get("language") or "en-US"),
         )
 
@@ -378,14 +383,44 @@ class EpubBuilder:
             )
         return self.book_info.get("identifier") or f"urn:orm:book:{self.book_id}", ""
 
-    def _toc_ncx(self, toc_items):
-        navmap, _, max_depth = self._parse_toc_ncx(toc_items)
+    def _page_list(self, chapters):
+        """(page label, filename) at each chapter start, from the API's
+        per-chapter virtual_pages. Source HTML has no intra-chapter page
+        anchors, so granularity is chapter starts; empty when the API gave
+        no page counts (e.g. a cache written before this field existed)."""
+        entries, page = [], 1
+        for ch in chapters:
+            entries.append((page, ch["filename"]))
+            page += int(ch.get("virtual_pages") or 0)
+        return entries if page > 1 else []
+
+    def _toc_ncx(self, toc_items, chapters):
+        navmap, counter, max_depth = self._parse_toc_ncx(toc_items)
+        pages = self._page_list(chapters)
+        page_list = ""
+        if pages:
+            targets = [
+                f'<pageTarget id="pageTarget-{n}" type="normal" value="{n}"'
+                f' playOrder="{counter + i}"><navLabel><text>{n}</text></navLabel>'
+                f'<content src="{_epub_href(fname)}"/></pageTarget>'
+                for i, (n, fname) in enumerate(pages, 1)
+            ]
+            page_list = (
+                '<pageList id="pageList" class="pagelist">'
+                "<navLabel><text>Pages</text></navLabel>"
+                + "".join(targets)
+                + "</pageList>\n"
+            )
+        total = sum(int(c.get("virtual_pages") or 0) for c in chapters)
         return TOC_NCX.format(
             escape(self._identifier()[0]),
             max_depth,
             escape(self.book_info["title"]),
             escape(", ".join(self.book_info.get("authors", []))),
             navmap,
+            total,
+            total,
+            page_list,
         )
 
     def _toc_ol(self, items):
@@ -450,11 +485,22 @@ class EpubBuilder:
                     f'href="{_epub_href(chapters[1]["filename"])}">'
                     "Start of Content</a></li>"
                 )
+        page_nav = ""
+        if self._page_list(chapters):
+            lis = "".join(
+                f'<li><a href="{_epub_href(fname)}">{n}</a></li>\n'
+                for n, fname in self._page_list(chapters)
+            )
+            page_nav = (
+                '<nav epub:type="page-list" hidden="hidden">\n'
+                f"<h1>Pages</h1>\n<ol>\n{lis}</ol>\n</nav>\n"
+            )
         return NAV_XHTML.format(
             escape(self.book_info["title"]),
             self._toc_ol(toc_items),
             "\n".join(landmarks),
             escape(self.book_info.get("language") or "en"),
+            page_nav,
         )
 
     # -- final assembly -------------------------------------------------------------
@@ -471,7 +517,9 @@ class EpubBuilder:
                 )
             )
         with open(os.path.join(self.oebps, "toc.ncx"), "wb") as f:
-            f.write(self._toc_ncx(toc_items).encode("utf-8", "xmlcharrefreplace"))
+            f.write(
+                self._toc_ncx(toc_items, chapters).encode("utf-8", "xmlcharrefreplace")
+            )
         with open(os.path.join(self.oebps, "nav.xhtml"), "wb") as f:
             f.write(
                 self._nav_xhtml(toc_items, chapters).encode(
