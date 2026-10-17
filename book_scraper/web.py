@@ -65,7 +65,8 @@ border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
 header.top button:hover{background:var(--hover)}
-#theme-btn{width:36px;padding:6px 0;text-align:center}
+#theme-btn,#wide-btn{width:36px;padding:6px 0;text-align:center}
+#wide-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
 header.top .booktitle a{color:var(--fg)}
@@ -122,7 +123,9 @@ main{padding:76px 24px 64px;margin-left:300px;transition:margin .2s ease}
 body.sidebar-hidden main{margin-left:0}
 .content{max-width:740px;margin:0 auto;background:var(--card-bg);
 color:var(--card-fg);border-radius:var(--card-r);padding:var(--card-pad);
-transition:background-color .25s ease,color .25s ease,filter .3s ease}
+transition:background-color .25s ease,color .25s ease,filter .3s ease,
+max-width .25s ease}
+[data-wide] .content{max-width:none}
 .content a{color:var(--content-accent)}
 .content .anchor{opacity:0;margin-left:.35em;font-size:.75em;
 font-weight:400;color:var(--content-muted);text-decoration:none;
@@ -280,6 +283,27 @@ SITE_JS = """\
         localStorage.setItem(themeKey, t);
       } catch (e) {}
     });
+  }
+
+  // -- full-width content toggle -------------------------------------------
+  var wideBtn = document.getElementById("wide-btn");
+  if (wideBtn) {
+    var syncWide = function () {
+      wideBtn.setAttribute(
+        "aria-pressed",
+        document.documentElement.dataset.wide === "1" ? "true" : "false"
+      );
+    };
+    wideBtn.addEventListener("click", function () {
+      var w = document.documentElement.dataset.wide === "1";
+      if (w) delete document.documentElement.dataset.wide;
+      else document.documentElement.dataset.wide = "1";
+      try {
+        localStorage.setItem("bs-wide", w ? "0" : "1");
+      } catch (e) {}
+      syncWide();
+    });
+    syncWide();
   }
   document.addEventListener("keydown", function (e) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
@@ -512,7 +536,8 @@ PAGE = """\
 <head>
 <meta charset="utf-8"/>
 <script>(function(){var t="system";try{t=localStorage.getItem("bs-theme")||"system"}catch(e){}
-document.documentElement.dataset.theme=t;})()</script>
+document.documentElement.dataset.theme=t;
+try{if(localStorage.getItem("bs-wide")==="1")document.documentElement.dataset.wide="1"}catch(e){}})()</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
@@ -531,6 +556,8 @@ document.documentElement.dataset.theme=t;})()</script>
  autocomplete="off" spellcheck="false" aria-label="Search this book"/>
 <div id="search-results" class="search-results" hidden></div>
 </div>
+<button id="wide-btn" aria-label="Toggle full-width content"
+ aria-pressed="false" title="Toggle full-width content">&#8596;</button>
 <button id="theme-btn" aria-label="Theme: system"
  title="Theme: system">&#9680;</button>
 <a class="toc-link" href="toc.html">Contents</a>
