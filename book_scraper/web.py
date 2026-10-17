@@ -126,7 +126,7 @@ body.sidebar-hidden main{margin-left:0}
 color:var(--card-fg);border-radius:var(--card-r);padding:var(--card-pad);
 transition:background-color .25s ease,color .25s ease,filter .3s ease,
 max-width .25s ease}
-[data-wide] .content{max-width:none}
+[data-wide] .content,[data-wide] .pager{max-width:none}
 .content a{color:var(--content-accent)}
 .content .anchor{opacity:0;margin-left:.35em;font-size:.75em;
 font-weight:400;color:var(--content-muted);text-decoration:none;
