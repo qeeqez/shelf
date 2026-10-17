@@ -3,10 +3,11 @@
 import os
 import re
 import zipfile
+from urllib.parse import unquote
 
 from lxml import etree
 
-from shelf.epub import EpubBuilder, _epub_href
+from shelf.epub import EpubBuilder, _epub_href, _item_id
 
 INFO = {
     "title": "Test Book",
@@ -167,6 +168,111 @@ class TestTocNcx:
         assert 'src="ch01.xhtml"' in navmap
         assert 'src=""' not in navmap
 
+    def test_unresolvable_items_emit_no_empty_src(self):
+        """A TOC leaf with no href anywhere in its subtree must not emit a
+        navPoint with an empty content src — its label is dropped but any
+        resolvable siblings/children still appear."""
+        items = [
+            {
+                "id": "dead",
+                "label": "External",
+                "href": "",
+                "fragment": "",
+                "depth": 1,
+                "children": [
+                    {
+                        "id": "dead2",
+                        "label": "Also Dead",
+                        "href": "",
+                        "fragment": "",
+                        "depth": 2,
+                        "children": [],
+                    }
+                ],
+            },
+            {
+                "id": "wrapper",
+                "label": "Links",
+                "href": "",
+                "fragment": "",
+                "depth": 1,
+                "children": [
+                    {
+                        "id": "ch01",
+                        "label": "Chapter 1",
+                        "href": "ch01.html",
+                        "fragment": "",
+                        "depth": 2,
+                        "children": [],
+                    }
+                ],
+            },
+        ]
+        b = make_builder("/tmp/x")
+        navmap, _, _ = b._parse_toc_ncx(items)
+        assert 'src=""' not in navmap
+        # Fully unresolvable subtrees vanish; the container resolves to its
+        # first child via _first_href and still wraps it.
+        assert "External" not in navmap
+        assert "Also Dead" not in navmap
+        assert '<text>Links</text></navLabel><content src="ch01.xhtml"/>' in navmap
+
+    def test_playorders_contiguous_and_ids_unique(self):
+        """epubcheck rejects playOrder gaps and duplicate navPoint ids —
+        numbering must survive nesting, dedup and skipped items."""
+        items = toc_items() + [
+            {
+                "id": "dead",
+                "label": "Dead",
+                "href": "",
+                "fragment": "",
+                "depth": 1,
+                "children": [],
+            },
+            {
+                "id": "ch02",
+                "label": "Chapter 2",
+                "href": "ch02.html",
+                "fragment": "",
+                "depth": 1,
+                "children": [],
+            },
+        ]
+        b = make_builder("/tmp/x")
+        navmap, _, _ = b._parse_toc_ncx(items)
+        ids = re.findall(r'navPoint id="navpoint-(\d+)"', navmap)
+        assert len(ids) == len(set(ids))
+        # Same-target navPoints may share a playOrder; the distinct values
+        # must still be contiguous — epubcheck flags gaps.
+        orders = {int(m.group(1)) for m in re.finditer(r'playOrder="(\d+)"', navmap)}
+        assert orders == set(range(1, len(orders) + 1))
+
+    def test_dtb_depth_is_structural(self):
+        """dtb:depth counts navMap nesting, not the listing's depth field —
+        an item claiming depth 5 nested two levels deep still reports 2."""
+        items = [
+            {
+                "id": "a",
+                "label": "A",
+                "href": "a.html",
+                "fragment": "",
+                "depth": 1,
+                "children": [
+                    {
+                        "id": "b",
+                        "label": "B",
+                        "href": "b.html",
+                        "fragment": "",
+                        "depth": 5,
+                        "children": [],
+                    }
+                ],
+            }
+        ]
+        b = make_builder("/tmp/x")
+        ncx = b._toc_ncx(items, [])
+        assert 'content="2" name="dtb:depth"' in ncx
+
 
 class TestTocOl:
     def test_container_heading_renders_span_not_dead_link(self):
@@ -273,6 +379,105 @@ class TestContentOpf:
         ids = re.findall(r'<item id="([^"]+)"', opf)
         assert len(ids) == len(set(ids))
 
+    def test_manifest_skips_dotfiles_and_tmp(self, tmp_path):
+        """finalize()'s zip walk excludes dotfiles and .tmp leftovers, so
+        the manifest must too — otherwise items point at missing files."""
+        b = make_builder(tmp_path)
+        for junk in (".DS_Store", "stray.png.tmp"):
+            with open(os.path.join(b.images_path, junk), "w") as f:
+                f.write("x")
+            with open(os.path.join(b.fonts_path, junk), "w") as f:
+                f.write("x")
+            with open(os.path.join(b.css_path, junk), "w") as f:
+                f.write("x")
+        b.write_image("cover.png", b"\x89PNG")
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}],
+            "Images/cover.png",
+            "ch01.xhtml",
+        )
+        assert ".DS_Store" not in opf
+        assert ".tmp" not in opf
+        assert 'href="Images/cover.png"' in opf
+
+    def test_asset_hrefs_are_percent_encoded(self, tmp_path):
+        """A filename with spaces/& is legal in the zip — the manifest href
+        must be a valid URI (percent-encoded) and the id an NCName."""
+        b = make_builder(tmp_path)
+        b.write_image("a b&c.png", b"\x89PNG")
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
+        )
+        assert 'href="Images/a%20b%26c.png"' in opf
+        assert 'id="img_a_b_c-png"' in opf
+
+    def test_cover_meta_only_when_cover_exists(self, tmp_path):
+        """<meta name="cover"> with an empty content ref is a dangling
+        pointer — omit it when the book has no cover image."""
+        b = make_builder(tmp_path)
+        self._write_chapter(b, "ch01.xhtml")
+        chapters = [{"filename": "ch01.xhtml", "title": "C1"}]
+        opf = b._content_opf(chapters, "", "ch01.xhtml")
+        assert 'name="cover"' not in opf
+        b.write_image("cover.png", b"\x89PNG")
+        opf = b._content_opf(chapters, "Images/cover.png", "ch01.xhtml")
+        assert '<meta name="cover" content="img_cover-png"/>' in opf
+
+    def test_nav_chapter_filename_does_not_clash(self, tmp_path):
+        """A chapter literally named nav.xhtml must not reuse the nav
+        manifest id — spine and manifest stay consistent either way."""
+        b = make_builder(tmp_path)
+        self._write_chapter(b, "nav.xhtml")
+        opf = b._content_opf(
+            [{"filename": "nav.xhtml", "title": "Nav Ch"}], "", "nav.xhtml"
+        )
+        assert 'id="nav" href="nav.xhtml" media-type="application/xhtml+xml"' in opf
+        assert 'id="chapter_nav"' in opf
+        assert '<itemref idref="chapter_nav"/>' in opf
+
+
+class TestItemId:
+    def test_ids_are_ncnames(self):
+        """Manifest ids are xsd:ID — no leading digit, no spaces, no &."""
+        for name, iid in (
+            ("ch01.html", "ch01"),
+            ("a.b.html", "a.b"),
+            ("3d-models.html", "_3d-models"),
+            ("my ch.html", "my_ch"),
+            (".html", "item"),
+        ):
+            result = _item_id(name)
+            assert result == iid
+            assert re.fullmatch(r"[A-Za-z_][\w.-]*", result), (name, result)
+
+    def test_dot_stems_do_not_collapse(self):
+        """Old join-stripped stems let a.b.html and ab.html share an id."""
+        assert _item_id("a.b.html") != _item_id("ab.html")
+
+
+class TestNavXhtml:
+    def test_bodymatter_points_at_first_chapter_without_cover(self):
+        """With no cover page, Start of Content is the first chapter —
+        not the second."""
+        b = make_builder("/tmp/x")
+        chapters = [
+            {"filename": "ch01.html", "title": "One"},
+            {"filename": "ch02.html", "title": "Two"},
+        ]
+        nav = b._nav_xhtml([], chapters)
+        assert '<a epub:type="bodymatter" href="ch01.xhtml">' in nav
+
+    def test_bodymatter_skips_cover(self):
+        b = make_builder("/tmp/x")
+        chapters = [
+            {"filename": "cover.html", "title": "Cover"},
+            {"filename": "ch01.html", "title": "One"},
+        ]
+        nav = b._nav_xhtml([], chapters)
+        assert '<a epub:type="bodymatter" href="ch01.xhtml">' in nav
+
 
 def test_epub_href():
     assert _epub_href("ch01.html") == "ch01.xhtml"
@@ -306,3 +511,30 @@ class TestFinalize:
         assert all(
             n == "mimetype" or n.startswith(("META-INF/", "OEBPS/")) for n in names
         ), names
+
+    def test_every_manifest_href_exists_in_zip(self, tmp_path):
+        """Manifest/zip parity — every declared href (after URI-decoding)
+        must name a file that actually shipped."""
+        b = make_builder(tmp_path)
+        b.write_chapter(
+            "ch01.xhtml",
+            '<?xml version="1.0"?><html'
+            ' xmlns="http://www.w3.org/1999/xhtml"><body/></html>',
+        )
+        b.write_image("my pic.png", b"\x89PNG")
+        with open(os.path.join(b.images_path, ".DS_Store"), "w") as f:
+            f.write("x")
+        epub = str(tmp_path / "book.epub")
+        b.finalize(
+            [{"filename": "ch01.xhtml", "title": "C1"}],
+            toc_items(),
+            "Images/my pic.png",
+            epub,
+        )
+        zf = zipfile.ZipFile(epub)
+        shipped = set(zf.namelist())
+        opf = zf.read("OEBPS/content.opf").decode()
+        hrefs = re.findall(r'<item[^>]*href="([^"]+)"', opf)
+        assert hrefs
+        for href in hrefs:
+            assert "OEBPS/" + unquote(href) in shipped, href
