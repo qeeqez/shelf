@@ -77,7 +77,8 @@ and save the output to a file, then `--import-cookies cookies.json`.
   `brew install pango` / `apt install libpango-1.0-0`)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
-  (`brew install epubcheck`, or the epubcheck jar from your distro)
+  (`brew install epubcheck` — requires Java — or the epubcheck jar from your
+  distro). Expect `0 fatals / 0 errors / 0 warnings / 0 infos`.
 - `--force` — delete the working directory and re-download everything
 - `--jobs N` — parallel downloads (default 4); a global request-rate cap
   still applies, so higher `N` won't hammer the API
