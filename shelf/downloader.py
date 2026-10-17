@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urljoin
 
 from lxml import html
@@ -101,6 +102,25 @@ def _font_faces(fonts_dir, css_text):
 
 CSS_URL_RE = re.compile(r"url\((['\"]?)([^)'\"]+)(['\"]?)\)")
 
+REMOTE_RES_RE = re.compile(
+    r'(?:src|data|poster|xlink:href)\s*=\s*"https?://|url\(\s*["\']?https?://'
+)
+EPUB_TYPE_RE = re.compile(r'epub:type="([a-z-]+)"')
+
+
+def _chapter_flags(xhtml):
+    """EPUB item properties + landmark type, detected while transforming —
+    saves _content_opf/_nav_xhtml a second read of every chapter file."""
+    props = []
+    if "<math" in xhtml:
+        props.append("mathml")
+    if "<svg" in xhtml:
+        props.append("svg")
+    if REMOTE_RES_RE.search(xhtml):
+        props.append("remote-resources")
+    m = EPUB_TYPE_RE.search(xhtml)
+    return props, (m.group(1) if m else "")
+
 
 def rewrite_css_urls(content, image_names, font_names):
     """Point relative url() refs in book CSS at our Images/Fonts dirs."""
@@ -130,6 +150,7 @@ class Downloader:
         web=False,
         validate=False,
         force=False,
+        jobs=4,
         log=print,
         progress=None,
     ):
@@ -140,6 +161,7 @@ class Downloader:
         self.web = web
         self.validate = validate
         self.force = force
+        self.jobs = max(1, jobs)
         self.log = log
         self.progress = progress or (lambda done, total, label="": None)
 
@@ -179,12 +201,9 @@ class Downloader:
         images = []  # full download URLs
         fonts = []
         asset_failures = 0
-        self.log("Downloading chapters...")
-        total = len(chapters)
-        for i, ch in enumerate(chapters):
-            self.progress(i + 1, total, ch["title"])
-            out_name = ch["filename"].replace(".html", ".xhtml")
 
+        # Collect asset URLs for every chapter (cheap, no network).
+        for ch in chapters:
             for img_url in ch["images"]:
                 if img_url.startswith("http"):
                     images.append(img_url)
@@ -196,31 +215,60 @@ class Downloader:
                 else:
                     fonts.append(urljoin(api.files_url + "/", font_url))
 
-            if builder.has_chapter(out_name):
-                continue
+        # Fetch raw HTML in parallel for chapters whose output is missing.
+        # Transform stays sequential: Transformer is stateful (CSS registry,
+        # cover detection) and parsing is cheap compared to the network.
+        missing = [
+            i
+            for i, ch in enumerate(chapters)
+            if not builder.has_chapter(ch["filename"].replace(".html", ".xhtml"))
+        ]
 
-            chapter_css = [s["url"] for s in ch["stylesheets"]] + ch["site_styles"]
+        def _fetch_raw(i):
+            ch = chapters[i]
             # Cache raw HTML so re-transforming (after transform changes or
             # deleted .xhtml) doesn't hit the API again.
             cache_file = os.path.join(work_dir, ".cache", ch["filename"])
             if os.path.isfile(cache_file):
                 with open(cache_file, encoding="utf-8") as f:
-                    raw = f.read()
-            else:
-                raw = api.get_chapter_html(ch)
-                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    f.write(raw)
+                    return i, f.read()
+            raw = api.get_chapter_html(ch)
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            tmp = cache_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(raw)
+            os.replace(tmp, cache_file)
+            return i, raw
+
+        self.log("Downloading chapters...")
+        raws = {}
+        if missing and self.jobs > 1:
+            with ThreadPoolExecutor(max_workers=min(self.jobs, len(missing))) as pool:
+                for done, (i, raw) in enumerate(pool.map(_fetch_raw, missing), 1):
+                    raws[i] = raw
+                    self.progress(done, len(missing), "chapters")
+        else:
+            for done, i in enumerate(missing, 1):
+                idx, raw = _fetch_raw(i)
+                raws[idx] = raw
+                self.progress(done, len(missing), "chapters")
+
+        for i in missing:
+            ch = chapters[i]
+            out_name = ch["filename"].replace(".html", ".xhtml")
+            chapter_css = [s["url"] for s in ch["stylesheets"]] + ch["site_styles"]
             try:
-                root = html.fromstring(raw, base_url=C.SAFARI_BASE_URL)
+                root = html.fromstring(raws[i], base_url=C.SAFARI_BASE_URL)
             except (html.etree.ParseError, html.etree.ParserError) as exc:
                 raise ApiError(
                     "Could not parse chapter {!r}".format(ch["title"])
                 ) from exc
             page_css, xhtml = tx.parse(root, chapter_css, first_page=(i == 0))
-            builder.write_chapter(
-                out_name, tx.render_page(page_css, xhtml, title=ch["title"])
-            )
+            rendered = tx.render_page(page_css, xhtml, title=ch["title"])
+            props, etype = _chapter_flags(rendered)
+            builder.chapter_props[out_name] = props
+            builder.chapter_types[out_name] = etype
+            builder.write_chapter(out_name, rendered)
 
         # On resume the first page is skipped before tx.parse, so recover the
         # cover image from the previously written chapter file.
@@ -279,43 +327,83 @@ class Downloader:
 
         image_names = {_basename(u) for u in images}
         font_names = {_basename(u) for u in fonts}
-        self.log(f"Downloading stylesheets ({len(tx.css)})...")
-        for i, css_url in enumerate(tx.css):
-            self.progress(i + 1, len(tx.css), "css")
-            target = os.path.join(builder.css_path, f"Style{i:0>2}.css")
-            if os.path.isfile(target):
-                continue
-            try:
-                content, _ = api.get_binary(css_url)
-                builder.write_css(i, rewrite_css_urls(content, image_names, font_names))
-            except (ApiError, OSError) as exc:
+
+        def _fetch_all(items, label, apply_result):
+            """Fetch item urls (up to --jobs workers); each item is
+            (url, key). apply_result(item, content, err) runs in the main
+            thread, preserving order and non-fatal per-asset warnings."""
+            total = len(items)
+
+            def work(item):
+                try:
+                    content, _ = api.get_binary(item[0])
+                    return item, content, None
+                except (ApiError, OSError) as exc:
+                    return item, None, exc
+
+            if self.jobs > 1 and total > 1:
+                with ThreadPoolExecutor(max_workers=min(self.jobs, total)) as pool:
+                    results = pool.map(work, items)
+            else:
+                results = map(work, items)
+            for i, (item, content, err) in enumerate(results, 1):
+                self.progress(i, total, label)
+                apply_result(item, content, err)
+
+        missing_css = [
+            (u, i)
+            for i, u in enumerate(tx.css)
+            if not os.path.isfile(os.path.join(builder.css_path, f"Style{i:0>2}.css"))
+        ]
+        self.log(f"Downloading stylesheets ({len(missing_css)}/{len(tx.css)})...")
+
+        def got_css(item, content, err):
+            nonlocal asset_failures
+            u, i = item
+            if err:
                 asset_failures += 1
-                self.log(f"  warning: CSS {css_url} failed: {exc}")
+                self.log(f"  warning: CSS {u} failed: {err}")
+                return
+            builder.write_css(i, rewrite_css_urls(content, image_names, font_names))
+
+        _fetch_all(missing_css, "css", got_css)
 
         images = list(dict.fromkeys(images))
-        self.log(f"Downloading images ({len(images)})...")
-        for i, url in enumerate(images):
-            self.progress(i + 1, len(images), "images")
-            if os.path.isfile(os.path.join(builder.images_path, _basename(url))):
-                continue
-            try:
-                content, _ = api.get_binary(url)
-                builder.write_image(_basename(url), content)
-            except (ApiError, OSError) as exc:
+        missing_imgs = [
+            (u, _basename(u))
+            for u in images
+            if not os.path.isfile(os.path.join(builder.images_path, _basename(u)))
+        ]
+        self.log(f"Downloading images ({len(missing_imgs)}/{len(images)})...")
+
+        def got_img(item, content, err):
+            nonlocal asset_failures
+            u, name = item
+            if err:
                 asset_failures += 1
-                self.log(f"  warning: image {url} failed: {exc}")
+                self.log(f"  warning: image {u} failed: {err}")
+                return
+            builder.write_image(name, content)
+
+        _fetch_all(missing_imgs, "images", got_img)
 
         fonts = list(dict.fromkeys(fonts))
-        for i, url in enumerate(fonts):
-            self.progress(i + 1, len(fonts), "fonts")
-            if os.path.isfile(os.path.join(builder.fonts_path, _basename(url))):
-                continue
-            try:
-                content, _ = api.get_binary(url)
-                builder.write_font(_basename(url), content)
-            except (ApiError, OSError) as exc:
+        missing_fonts = [
+            (u, _basename(u))
+            for u in fonts
+            if not os.path.isfile(os.path.join(builder.fonts_path, _basename(u)))
+        ]
+
+        def got_font(item, content, err):
+            nonlocal asset_failures
+            u, name = item
+            if err:
                 asset_failures += 1
-                self.log(f"  warning: font {url} failed: {exc}")
+                self.log(f"  warning: font {u} failed: {err}")
+                return
+            builder.write_font(name, content)
+
+        _fetch_all(missing_fonts, "fonts", got_font)
 
         # Wire downloaded fonts into the shared stylesheet — book CSS often
         # names embedded fonts (e.g. "Ubuntu Mono") without @font-face.

@@ -71,6 +71,8 @@ and save the output to a file, then `--import-cookies cookies.json`.
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
   (`brew install epubcheck`)
 - `--force` — delete the working directory and re-download everything
+- `--jobs N` — parallel downloads (default 4); a global request-rate cap
+  still applies, so higher `N` won't hammer the API
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session
 

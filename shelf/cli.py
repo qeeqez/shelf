@@ -250,6 +250,14 @@ def build_parser():
         help="Delete the working directory and download everything again",
     )
     p.add_argument(
+        "--jobs",
+        type=int,
+        default=4,
+        metavar="N",
+        help="Parallel downloads (default: %(default)s; global request"
+        " pacing still applies)",
+    )
+    p.add_argument(
         "-o",
         "--output",
         metavar="DIR",
@@ -299,6 +307,7 @@ def main(argv=None):
             web=args.web,
             validate=args.validate,
             force=args.force,
+            jobs=args.jobs,
             log=printer.log,
             progress=printer.progress,
         ).run(book_id)

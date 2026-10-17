@@ -2,7 +2,7 @@
 
 ## Commands
 
-- `uv run shelf <URL_OR_ID>` — run the CLI (flags: `--web --pdf --kindle --validate --force`)
+- `uv run shelf <URL_OR_ID>` — run the CLI (flags: `--web --pdf --kindle --validate --force --jobs N`)
 - `uv run pytest tests/` — unit tests
 - `uv run ruff check .` / `uv run ruff format .` — lint / format
 - `node --check "Books/<Title> (<id>)/web/assets/site.js"` — generated JS syntax

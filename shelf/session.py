@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import threading
 import time
 from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
@@ -28,6 +29,16 @@ class OreillySession:
         )
         self.jwt = {}
         self._last_request = 0.0
+        self._pace_lock = threading.Lock()
+
+    def _pace(self):
+        # Global token bucket: at most 1/MIN_INTERVAL requests/sec across ALL
+        # workers — parallel downloads must not multiply the request rate.
+        with self._pace_lock:
+            wait = self.MIN_INTERVAL - (time.time() - self._last_request)
+            if wait > 0:
+                time.sleep(wait)
+            self._last_request = time.time()
 
     # -- low-level request handling ----------------------------------------
 
@@ -52,22 +63,18 @@ class OreillySession:
         retryable = self.RETRYABLE_STATUSES + ((403,) if retry_403 else ())
         response = None
         for attempt in range(retries):
-            elapsed = time.time() - self._last_request
-            if elapsed < self.MIN_INTERVAL:
-                time.sleep(self.MIN_INTERVAL - elapsed)
+            self._pace()
             try:
                 response = self.client.request(
                     "POST" if is_post else "GET", url, **kwargs
                 )
             except httpx.TransportError as exc:
-                self._last_request = time.time()
                 if attempt == retries - 1:
                     raise AuthError(f"Unable to reach {url}: {exc}") from exc
                 time.sleep(1 + attempt)
                 continue
             except UnicodeError as exc:
                 raise AuthError(f"Bad cookie data in session: {exc}") from exc
-            self._last_request = time.time()
             if response.status_code in retryable and attempt < retries - 1:
                 retry_after = response.headers.get("retry-after")
                 try:

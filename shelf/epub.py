@@ -137,6 +137,11 @@ class EpubBuilder:
         self.images_path = os.path.join(self.oebps, "Images")
         self.css_path = os.path.join(self.oebps, "Styles")
         self.fonts_path = os.path.join(self.oebps, "Fonts")
+        # Populated by the downloader during transform so manifest/nav
+        # generation doesn't re-read every chapter file. Missing entries fall
+        # back to scanning the file on disk (resume path).
+        self.chapter_props = {}
+        self.chapter_types = {}
         for d in (
             self.oebps,
             self.images_path,
@@ -190,24 +195,28 @@ class EpubBuilder:
         manifest = []
         has_mathml = False
         for c in chapters:
-            props = []
-            path = self.chapter_path(_epub_href(c["filename"]))
-            try:
-                with open(path, encoding="utf-8", errors="replace") as f:
-                    data = f.read()
-                if "<math" in data:
-                    props.append("mathml")
-                    has_mathml = True
-                if "<svg" in data:
-                    props.append("svg")
-                if re.search(
-                    r'(?:src|data|poster|xlink:href)\s*=\s*"https?://'
-                    r"|url\(\s*[\"']?https?://",
-                    data,
-                ):
-                    props.append("remote-resources")
-            except OSError:
-                pass
+            name = _epub_href(c["filename"])
+            props = self.chapter_props.get(name)
+            if props is None:
+                props = []
+                path = self.chapter_path(name)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as f:
+                        data = f.read()
+                    if "<math" in data:
+                        props.append("mathml")
+                    if "<svg" in data:
+                        props.append("svg")
+                    if re.search(
+                        r'(?:src|data|poster|xlink:href)\s*=\s*"https?://'
+                        r"|url\(\s*[\"']?https?://",
+                        data,
+                    ):
+                        props.append("remote-resources")
+                except OSError:
+                    pass
+            if "mathml" in props:
+                has_mathml = True
             props_attr = ' properties="' + " ".join(props) + '"' if props else ""
             manifest.append(
                 '<item id="{}" href="{}" media-type="application/xhtml+xml"{}/>'.format(
@@ -359,6 +368,9 @@ class EpubBuilder:
         return "<ol>\n" + "\n".join(lis) + "\n</ol>"
 
     def _chapter_epub_type(self, filename):
+        etype = self.chapter_types.get(_epub_href(filename))
+        if etype is not None:
+            return etype
         try:
             with open(
                 self.chapter_path(_epub_href(filename)),
