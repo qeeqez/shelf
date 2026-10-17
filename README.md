@@ -53,6 +53,9 @@ and save the output to a file, then `--import-cookies cookies.json`.
 - `--pdf` — also produce `<Book Title>.pdf` next to the EPUB
   (via [WeasyPrint](https://weasyprint.org); requires system Pango —
   `brew install pango` on macOS)
+- `--web` — also produce a browsable static site at
+  `Books/<Book Title> (<id>)/web/index.html` (sre.google-style layout:
+  collapsible sidebar TOC, prev/next pager, `←`/`→` keyboard nav)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session

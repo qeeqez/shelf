@@ -11,6 +11,7 @@ from .api import ApiError, OreillyAPI
 from .epub import EpubBuilder
 from .pdf import build_pdf
 from .transform import Transformer
+from .web import build_web
 
 
 def extract_book_id(text):
@@ -74,6 +75,7 @@ class BookScraper:
         output_dir,
         kindle=False,
         pdf=False,
+        web=False,
         log=print,
         progress=None,
     ):
@@ -81,6 +83,7 @@ class BookScraper:
         self.output_dir = output_dir
         self.kindle = kindle
         self.pdf = pdf
+        self.web = web
         self.log = log
         self.progress = progress or (lambda done, total, label="": None)
 
@@ -195,4 +198,16 @@ class BookScraper:
             pdf_path = epub_path[:-5] + ".pdf"
             build_pdf(builder.oebps, chapters, info["title"], pdf_path)
             self.log(f"Done: {pdf_path}")
+
+        if self.web:
+            self.log("Building web version...")
+            web_dir = build_web(
+                builder.oebps,
+                chapters,
+                toc,
+                info,
+                os.path.join(work_dir, "web"),
+                cover_src=tx.cover,
+            )
+            self.log(f"Done: {os.path.join(web_dir, 'index.html')}")
         return epub_path

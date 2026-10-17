@@ -210,6 +210,11 @@ def build_parser():
         help="Also produce a PDF next to the EPUB (requires system Pango)",
     )
     p.add_argument(
+        "--web",
+        action="store_true",
+        help="Also produce a browsable web version (sre.google-style layout)",
+    )
+    p.add_argument(
         "-o",
         "--output",
         metavar="DIR",
@@ -253,6 +258,7 @@ def main(argv=None):
             args.output,
             kindle=args.kindle,
             pdf=args.pdf,
+            web=args.web,
             log=printer.log,
             progress=printer.progress,
         ).run(book_id)
