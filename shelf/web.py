@@ -221,6 +221,22 @@ animation-iteration-count:1 !important;transition-duration:.01ms !important}
 
 SITE_JS = """\
 (function () {
+  // Sidebar TOC ships as assets/toc.js (SHELF_TOC) — one shared file instead
+  // of ~64KB inlined into every chapter page. Chapter pages embed only a
+  // <noscript> fallback link to toc.html.
+  var page = location.pathname.split("/").pop() || "index.html";
+  var navEl = document.querySelector("nav.sidebar");
+  if (navEl && window.SHELF_TOC) {
+    navEl.innerHTML = window.SHELF_TOC;
+    // Mark the current chapter — shared markup can't carry per-page state.
+    navEl.querySelectorAll("a[href]").forEach(function (a) {
+      if (a.getAttribute("href").split("#")[0] === page) {
+        a.classList.add("active");
+        a.setAttribute("aria-current", "page");
+      }
+    });
+  }
+
   var key = "shelf-sidebar";
   var stored = null;
   try { stored = localStorage.getItem(key); } catch (e) {}
@@ -554,7 +570,6 @@ SITE_JS = """\
     });
 
   // -- scroll spy -----------------------------------------------------------
-  var page = location.pathname.split("/").pop() || "index.html";
   var spyLinks = [], spyEls = [];
   document.querySelectorAll("nav.sidebar a[href]").forEach(function (a) {
     var href = a.getAttribute("href"), i = href.indexOf("#");
@@ -644,6 +659,7 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
 </header>
 <div class="scrim" id="scrim"></div>
 <nav class="sidebar" id="sidebar" aria-label="Table of contents">{sidebar}</nav>
+{toc_script}
 <main>
 <div class="content" id="content">
 {body}
@@ -872,17 +888,19 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         extra_head="",
         root="",
         sidebar_prefix="",
+        sidebar=None,
+        toc_script="",
     ):
         page = PAGE.replace("{lang}", escape(lang))
         page = page.replace("{page_title}", escape(page_title))
         page = page.replace("{book_title}", escape(title))
         page = page.replace("{book_links}", book_links)
-        page = page.replace(
-            "{sidebar}",
-            _sidebar_ul(
+        if sidebar is None:
+            sidebar = _sidebar_ul(
                 toc_items, _first_stem_match(toc_items, sidebar_current), sidebar_prefix
-            ),
-        )
+            )
+        page = page.replace("{sidebar}", sidebar)
+        page = page.replace("{toc_script}", toc_script)
         page = page.replace("{pager}", pager)
         page = page.replace("{body}", body)
         page = page.replace("{extra_head}", extra_head)
@@ -898,6 +916,14 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     # chapters are plain filenames (same directory).
     chapters_dir = os.path.join(web_dir, "chapters")
     os.makedirs(chapters_dir, exist_ok=True)
+
+    # The TOC sidebar is shared markup (~60KB+) — ship it once as toc.js and
+    # let site.js hydrate + mark the active chapter. Chapter pages keep only
+    # a no-JS link to toc.html; index/toc embed the real list.
+    toc_js = "window.SHELF_TOC=" + json.dumps(_sidebar_ul(toc_items, None)) + ";"
+    with open(os.path.join(assets, "toc.js"), "w") as f:
+        f.write(toc_js)
+
     flat = [c for c in chapters]
     for i, ch in enumerate(flat):
         path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
@@ -921,6 +947,11 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
             into="chapters/" + _page_name(ch["filename"]),
             extra_head=styles + rel_links,
             root="../",
+            sidebar=(
+                '<noscript><p><a href="../toc.html">'
+                "Table of contents &rarr;</a></p></noscript>"
+            ),
+            toc_script='<script src="../assets/toc.js"></script>',
         )
 
     # Client-side search index
