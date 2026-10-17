@@ -2,11 +2,23 @@
 
 # book-scraper
 
-Download O'Reilly books you have access to as EPUB files. Point it at a
-`learning.oreilly.com` book URL, authenticate once, and it produces a complete
-EPUB (chapters, images, stylesheets, table of contents).
+Download O'Reilly books you have access to for offline reading. Give it a
+`learning.oreilly.com` book URL (or bare book ID), authenticate once, and it
+produces a complete **EPUB 3** — plus optional **PDF** and a self-contained
+**static web reader**.
 
-Uses the O'Reilly **v2 API** (`/api/v2/epubs/`, `/api/v2/epub-chapters/`).
+## What it does
+
+- Authenticates against your O'Reilly account (browser cookies, saved session,
+  manual cookie import, or email/password).
+- Downloads every chapter, image, stylesheet, and font via the O'Reilly
+  **v2 API** (`/api/v2/epubs/`, `/api/v2/epub-chapters/`).
+- Rebuilds clean EPUB 3 output: XHTML content, rewritten links/assets,
+  authors/subjects/publisher pulled from the book's own `content.opf`, NCX +
+  nav TOC, landmarks, and schema.org accessibility metadata — `epubcheck`
+  clean.
+- Optionally emits a PDF (WeasyPrint) and a static web version
+  (`--web`) styled after the Google SRE book site.
 
 ## Install
 
@@ -26,8 +38,8 @@ uv run book-scraper 9781098125974
 ```
 
 On first run it asks how you want to sign in. A verified session is saved to
-`~/Library/Application Support/book-scraper/cookies.json` and reused on later
-runs (it auto re-auths when expired).
+`~/Library/Application Support/book-scraper/cookies.json` (written `0600`)
+and reused on later runs, auto re-authing when it expires.
 
 ### Authentication options
 
@@ -47,31 +59,54 @@ console.log(JSON.stringify(document.cookie.split(';').map(c => c.split('=')).map
 
 and save the output to a file, then `--import-cookies cookies.json`.
 
-### Other flags
+### Output flags
 
 - `-o DIR` — output directory (default `./Books`)
+- `--web` — also produce a browsable static site at
+  `Books/<Book Title> (<id>)/web/index.html`
 - `--pdf` — also produce `<Book Title>.pdf` next to the EPUB
   (via [WeasyPrint](https://weasyprint.org); requires system Pango —
   `brew install pango` on macOS)
-- `--web` — also produce a browsable static site at
-  `Books/<Book Title> (<id>)/web/index.html` (sre.google-style layout:
-  collapsible sidebar TOC, prev/next pager, `←`/`→` keyboard nav,
-  system/light/dark theme toggle, instant client-side search via a
-  build-time index — no server needed)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
   (`brew install epubcheck`)
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session
 
-## Output
+## The web reader
 
-`Books/<Book Title>.epub` (and `.pdf` with `--pdf`) plus a
-`Books/<Book Title> (<id>)/` working
-directory with the unpacked content. Re-running after an interruption resumes
-where it left off — delete the working directory to force a clean download.
-Raw chapter HTML is kept in `.cache/` inside it, so re-transforming (e.g.
-after editing `transform.py`) doesn't hit the API again.
+`--web` generates a fully static site — no server needed, works straight off
+the filesystem:
+
+- Collapsible sidebar TOC with the current chapter highlighted and a
+  scroll-spy marker that tracks the section you're reading; sidebar scroll
+  position survives page switches.
+- Instant client-side search (build-time index), keyboard navigable
+  (`/` to focus, arrows, Enter, Escape).
+- `system / light / dark` theme toggle — dark mode inverts book content
+  colors so images and code blocks stay readable.
+- Full-width content toggle, heading anchor links (hover `#`, click copies
+  the URL), prev/next pager, `←`/`→` chapter keys.
+- Mobile-ready: drawer sidebar with scrim, safe-area insets, 44px touch
+  targets, no iOS zoom on search.
+- Print stylesheet — browser "Print to PDF" produces a clean book layout.
+- Honors `prefers-reduced-motion`; usable without JavaScript.
+
+## Output layout
+
+```
+Books/<Book Title>.epub                # the EPUB
+Books/<Book Title>.pdf                 # with --pdf
+Books/<Book Title> (<id>)/
+  OEBPS/                               # unpacked EPUB content
+  web/                                 # the static site, with --web
+  .cache/                              # raw chapter HTML (offline re-transforms)
+```
+
+Re-running after an interruption resumes where it left off — delete the
+working directory to force a clean download. Raw chapter HTML stays in
+`.cache/`, so iterating on `transform.py` or the web output doesn't hit the
+API again.
 
 ## Development
 
