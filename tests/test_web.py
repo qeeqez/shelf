@@ -3,6 +3,8 @@
 from lxml import html
 
 from shelf.web import (
+    SITE_CSS,
+    SITE_JS,
     _chapter_data,
     _first_stem_match,
     _pager,
@@ -315,3 +317,65 @@ class TestBuildWeb:
         build_web(oebps, chapters, [], info, str(web))
         index = (web / "index.html").read_text(encoding="utf-8")
         assert 'content="hello &quot;world&quot;"' in index
+
+
+class TestSiteAssets:
+    """The reading-experience features live in the embedded CSS/JS —
+    guard the hooks they depend on."""
+
+    def test_reading_position_persisted(self):
+        """Scroll memory is keyed per book dir (file:// shares one origin
+        across books) and an explicit #hash always wins over it."""
+        assert '"shelf-pos:" + siteRoot' in SITE_JS
+        assert "location.hash" in SITE_JS
+        assert '"/chapters/"' in SITE_JS  # only chapters mark the resume point
+
+    def test_resume_link_on_index(self, tmp_path):
+        """index.html carries a .start hook so site.js can turn
+        'Start reading' into 'Continue reading' at the last-read chapter."""
+        oebps = make_book(tmp_path, names=("a",))
+        chapters = [{"filename": "a.html", "title": "a"}]
+        web = tmp_path / "web"
+        build_web(oebps, chapters, [], {"title": "T"}, str(web))
+        index = (web / "index.html").read_text(encoding="utf-8")
+        assert '<a class="start" href="chapters/a.html">' in index
+        assert '"shelf-last:" + siteRoot' in SITE_JS
+
+    def test_reading_progress_bar(self):
+        assert 'className = "progress"' in SITE_JS
+        assert ".progress{" in SITE_CSS
+
+    def test_footnote_preview_and_target_flash(self):
+        """Hover/focus preview needs the noteref selector, tooltip wiring
+        and id-stripping; plain jumps get a :target flash so the landing
+        spot is findable in a wall of footnotes."""
+        assert 'a[data-type="noteref"]' in SITE_JS
+        assert '"role", "tooltip"' in SITE_JS
+        assert "aria-describedby" in SITE_JS
+        assert "querySelector(\"a[href*='#']\")" in SITE_JS  # back-link strip
+        assert '[data-type="footnote"]:target' in SITE_CSS
+        assert 'a[data-type="noteref"]:target' in SITE_CSS
+        assert ".note-tip{" in SITE_CSS
+
+    def test_copy_button_on_code(self):
+        """Buttons sit in .pre-wrap — inside the pre itself, overflow-x
+        scrolling would push them off-screen."""
+        assert '".content pre"' in SITE_JS
+        assert 'w.className = "pre-wrap"' in SITE_JS
+        assert ".pre-wrap{" in SITE_CSS
+        assert ".copy-btn{" in SITE_CSS
+
+    def test_keyboard_shortcuts_and_help(self):
+        assert 'e.key === "j"' in SITE_JS
+        assert 'e.key === "k"' in SITE_JS
+        assert 'e.key === "t"' in SITE_JS
+        assert 'e.key === "w"' in SITE_JS
+        assert 'e.key === "?"' in SITE_JS
+        assert 'help.id = "keys-help"' in SITE_JS
+        assert ".keys{" in SITE_CSS
+
+    def test_print_hides_added_chrome(self):
+        """New floating UI must not leak into the print layout."""
+        print_css = SITE_CSS.split("@media print")[1]
+        for sel in (".copy-btn", ".note-tip", ".keys"):
+            assert sel in print_css

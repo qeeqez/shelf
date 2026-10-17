@@ -76,6 +76,8 @@ header.top button:hover{background:var(--hover)}
 #menu-btn,#theme-btn,#wide-btn{width:36px;height:36px;padding:0;
 display:flex;align-items:center;justify-content:center;line-height:1}
 #wide-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
+.progress{position:absolute;left:0;bottom:-1px;height:2px;width:0;
+background:var(--accent);pointer-events:none}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
 header.top .booktitle a{color:var(--fg)}
@@ -112,6 +114,25 @@ to{opacity:1;transform:none}}
 #search-box{width:110px}
 .search-results{position:fixed;top:56px;left:8px;right:8px;width:auto}
 }
+.note-tip{position:fixed;z-index:40;max-width:min(420px,92vw);
+max-height:45vh;overflow-y:auto;background:var(--chrome);color:var(--fg);
+border:1px solid var(--line);border-radius:8px;box-shadow:var(--elev);
+padding:12px 16px;font-size:14px;line-height:1.55;
+animation:dropin .15s ease;scrollbar-width:thin;
+scrollbar-color:var(--muted) transparent}
+.note-tip p{margin:0 0 8px}
+.note-tip p:last-child{margin-bottom:0}
+.keys{position:fixed;inset:0;z-index:60;display:flex;align-items:center;
+justify-content:center;background:rgba(0,0,0,.42)}
+.keys[hidden]{display:none}
+.keys .panel{background:var(--chrome);color:var(--fg);
+border:1px solid var(--line);border-radius:10px;box-shadow:var(--elev);
+padding:18px 26px;max-width:92vw;font-size:14px;animation:dropin .15s ease}
+.keys h2{font-size:15px;margin:0 0 10px}
+.keys table{border-collapse:collapse}
+.keys td{padding:3px 0;color:var(--muted)}
+.keys td:first-child{padding-right:18px;color:var(--fg);font-weight:600;
+white-space:nowrap}
 nav.sidebar{position:fixed;top:56px;left:0;bottom:0;width:300px;overflow-y:auto;
 border-right:1px solid var(--line);background:var(--chrome);
 padding:12px 0 calc(40px + env(safe-area-inset-bottom));
@@ -161,6 +182,15 @@ font-size:.9em}
 .content p code,.content li code,.content td code{background:var(--code);
 padding:1px 5px;border-radius:4px}
 .content pre code{background:none;padding:0}
+.pre-wrap{position:relative}
+.copy-btn{position:absolute;top:6px;right:6px;padding:3px 10px;
+font:inherit;font-size:12px;line-height:1.4;border:1px solid var(--line);
+border-radius:6px;background:var(--chrome);color:var(--muted);
+cursor:pointer;opacity:0;transition:opacity .15s ease}
+.pre-wrap:hover .copy-btn,.copy-btn:focus{opacity:1}
+.copy-btn.copied{color:var(--accent);border-color:var(--accent);
+font-weight:600}
+@media (hover:none){.copy-btn{opacity:.75}}
 .content table{border-collapse:collapse;width:100%;font-size:15px;
 margin:20px 0;display:block;overflow-x:auto;scrollbar-width:thin;
 scrollbar-color:var(--muted) transparent}
@@ -175,6 +205,16 @@ padding:2px 20px;color:var(--content-muted)}
 .content dl{margin:0 0 16px}
 .content dd{margin:0 0 6px 2em}
 .content sup,.content sub{font-size:.75em;line-height:0}
+/* Book CSS usually styles its own footnotes block (higher specificity
+   wins) — this is the fallback for books that don't. */
+.content [data-type="footnotes"]{border-top:1px solid var(--line);
+margin-top:40px;font-size:.92em;color:var(--content-muted)}
+@keyframes fnhl{0%{background:var(--mark)}to{background:transparent}}
+/* Flash the landing spot after a noteref jump — footnotes cluster at the
+   page foot and the marker back-link is a tiny sup, both easy to lose. */
+.content [data-type="footnote"]:target,
+.content a[data-type="noteref"]:target{animation:fnhl 2s ease-out;
+border-radius:3px}
 .content .sidebar,aside[data-type="sidebar"]{border:1px solid var(--line);
 border-radius:8px;background:#f8f9fa;padding:16px 20px;margin:24px 0}
 .content h6{font-size:.9em;font-weight:400;font-style:italic;text-align:center;
@@ -207,7 +247,8 @@ header.top .booktitle{display:none}
 :root:not([data-theme="light"]) .content{filter:invert(1) hue-rotate(180deg)}
 }
 @media print{
-header.top,nav.sidebar,.pager,.skip,.anchor{display:none}
+header.top,nav.sidebar,.pager,.skip,.anchor,.copy-btn,.note-tip,
+.keys{display:none}
 main{padding:0;margin-left:0}
 .content{max-width:none;padding:0;filter:none !important}
 figure,pre,table{break-inside:avoid}
@@ -317,6 +358,77 @@ SITE_JS = """\
       { passive: true }
     );
   }
+  // -- reading position + progress -----------------------------------------
+  // Each page remembers its scroll offset — leaving a chapter and coming
+  // back lands where the reader stopped, and index.html's "Start reading"
+  // becomes a resume point. Keys carry the site root so two books on the
+  // shared file:// origin never collide (both have a ch01.html). An
+  // explicit #hash always wins: TOC/search links target sections on
+  // purpose and must not be overridden by stale position.
+  var siteRoot = location.pathname
+    .replace(/[/]chapters[/][^/]*$/, "/")
+    .replace(/[/][^/]*$/, "/");
+  var posKey = "shelf-pos:" + siteRoot + page;
+  var posY = null;
+  try {
+    posY = localStorage.getItem(posKey);
+  } catch (e) {}
+  if (!location.hash && posY !== null) {
+    var y = parseInt(posY, 10);
+    if (y > 0) {
+      window.scrollTo(0, y);
+      // The page can still be short here — images below the fold without
+      // reserved space clamp the jump. Re-apply once layout is final.
+      window.addEventListener("load", function () {
+        window.scrollTo(0, y);
+      });
+    }
+  }
+  if (location.pathname.indexOf("/chapters/") >= 0) {
+    try {
+      localStorage.setItem("shelf-last:" + siteRoot, page);
+    } catch (e) {}
+  }
+  var startLink = document.querySelector(".index-hero a.start");
+  if (startLink) {
+    var lastPage = null;
+    try {
+      lastPage = localStorage.getItem("shelf-last:" + siteRoot);
+    } catch (e) {}
+    if (lastPage) {
+      startLink.setAttribute("href", "chapters/" + lastPage);
+      startLink.textContent = "Continue reading →";
+    }
+  }
+  // A 2px bar under the header edge — enough to judge "how far into this
+  // chapter am I" without spending layout space on it.
+  var progBar = document.createElement("div");
+  progBar.className = "progress";
+  progBar.setAttribute("aria-hidden", "true");
+  var topBar = document.querySelector("header.top");
+  if (topBar) topBar.appendChild(progBar);
+  var posTick = false;
+  var onPageScroll = function () {
+    posTick = false;
+    try {
+      localStorage.setItem(posKey, String(window.scrollY));
+    } catch (e) {}
+    var de = document.documentElement;
+    var max = de.scrollHeight - de.clientHeight;
+    progBar.style.width = (max > 0 ? (window.scrollY / max) * 100 : 0) + "%";
+  };
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (!posTick) {
+        posTick = true;
+        requestAnimationFrame(onPageScroll);
+      }
+    },
+    { passive: true }
+  );
+  onPageScroll();
+
   // -- theme (system / light / dark) --------------------------------------
   var themeKey = "shelf-theme";
   var themeBtn = document.getElementById("theme-btn");
@@ -389,20 +501,195 @@ SITE_JS = """\
     });
     syncWide();
   }
+  // -- footnote previews -----------------------------------------------------
+  // O'Reilly chapters carry dense noteref→footnote pairs (a chapter can
+  // have 100+). Hovering or focusing a ref pops the note in place — no
+  // jump, no lost position. Clicking still jumps (the note flashes
+  // :target on arrival); touch users keep the classic behaviour for free.
+  var tip = null, tipFor = null, tipHide = 0;
+  var TIP_ID = "shelf-note-tip";
+  function hideTip() {
+    if (!tip) return;
+    if (tipFor) tipFor.removeAttribute("aria-describedby");
+    tip.remove();
+    tip = tipFor = null;
+  }
+  function queueHide() {
+    clearTimeout(tipHide);
+    tipHide = setTimeout(hideTip, 140);
+  }
+  function showTip(a) {
+    if (tipFor === a) return;
+    var href = a.getAttribute("href") || "";
+    var i = href.indexOf("#");
+    if (i < 0) return;
+    var note = null;
+    try {
+      note = document.getElementById(decodeURIComponent(href.slice(i + 1)));
+    } catch (e) {}
+    if (!note) return; // note on another page — plain navigation stands
+    hideTip();
+    var clone = note.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.querySelectorAll("[id]").forEach(function (n) {
+      n.removeAttribute("id");
+    });
+    // The footnote's own back-link ("return to text") is chrome, not
+    // prose — drop it so the popup starts with the note body. Citation
+    // links deeper in the note stay clickable.
+    var back = clone.querySelector("a[href*='#']");
+    if (back) {
+      var bt = null;
+      try {
+        bt = document.getElementById(
+          decodeURIComponent(back.getAttribute("href").split("#")[1] || "")
+        );
+      } catch (e) {}
+      if (bt && bt.getAttribute("data-type") === "noteref") {
+        (back.closest("sup") || back).remove();
+        // "[1] note" / "<sup>1</sup> note" → strip the orphaned bracket
+        clone.innerHTML = clone.innerHTML.replace(/^[\\s\\[\\]]+/, "");
+      }
+    }
+    var d = document.createElement("div");
+    d.className = "note-tip";
+    d.id = TIP_ID;
+    d.setAttribute("role", "tooltip");
+    d.appendChild(clone);
+    document.body.appendChild(d);
+    var r = a.getBoundingClientRect();
+    d.style.left =
+      Math.max(8, Math.min(r.left, window.innerWidth - d.offsetWidth - 8)) +
+      "px";
+    var top = r.bottom + 6;
+    if (top + d.offsetHeight > window.innerHeight - 4)
+      top = Math.max(4, r.top - d.offsetHeight - 6); // flip above the ref
+    d.style.top = top + "px";
+    tip = d;
+    tipFor = a;
+    a.setAttribute("aria-describedby", TIP_ID);
+    // The note is hoverable so links inside it can be followed — a short
+    // grace period bridges the gap between ref and popup.
+    d.addEventListener("mouseenter", function () {
+      clearTimeout(tipHide);
+    });
+    d.addEventListener("mouseleave", queueHide);
+  }
+  var refOf = function (e) {
+    return (
+      e.target.closest && e.target.closest('a[data-type="noteref"]')
+    );
+  };
+  document.addEventListener("mouseover", function (e) {
+    var a = refOf(e);
+    if (a) {
+      clearTimeout(tipHide);
+      showTip(a);
+    }
+  });
+  document.addEventListener("mouseout", function (e) {
+    var a = refOf(e);
+    if (!a) return;
+    if (tip && e.relatedTarget && tip.contains(e.relatedTarget)) return;
+    queueHide();
+  });
+  document.addEventListener("focusin", function (e) {
+    var a = refOf(e);
+    if (a) showTip(a);
+  });
+  document.addEventListener("focusout", function (e) {
+    if (refOf(e)) queueHide();
+  });
+  document.addEventListener("click", function (e) {
+    if (refOf(e)) hideTip(); // jump + :target flash takes over
+  });
+  window.addEventListener(
+    "scroll",
+    function () {
+      if (tip) hideTip(); // fixed position would go stale
+    },
+    { passive: true }
+  );
+
+  // -- keyboard shortcuts ----------------------------------------------------
+  var help = null;
+  var SHORTCUTS = [
+    ["/", "Search the book"],
+    ["j / →", "Next chapter"],
+    ["k / ←", "Previous chapter"],
+    ["t", "Cycle theme (system → light → dark)"],
+    ["w", "Toggle full-width content"],
+    ["Esc", "Close panels and sidebar"],
+    ["?", "This help"],
+  ];
+  function toggleHelp(show) {
+    if (!help) {
+      help = document.createElement("div");
+      help.className = "keys";
+      help.id = "keys-help";
+      help.hidden = true;
+      help.setAttribute("role", "dialog");
+      help.setAttribute("aria-modal", "true");
+      help.setAttribute("aria-label", "Keyboard shortcuts");
+      var rows = "";
+      SHORTCUTS.forEach(function (r) {
+        rows += "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>";
+      });
+      help.innerHTML =
+        '<div class="panel" tabindex="-1"><h2>Keyboard shortcuts</h2>' +
+        "<table>" +
+        rows +
+        "</table></div>";
+      help.addEventListener("click", function (e) {
+        if (e.target === help) toggleHelp(false);
+      });
+      document.body.appendChild(help);
+    }
+    var open = show === undefined ? help.hidden : show;
+    help.hidden = !open;
+    if (open) help.querySelector(".panel").focus();
+  }
   document.addEventListener("keydown", function (e) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-    if (e.key === "Escape" && !isHidden()) {
-      setSidebar(false);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "Escape") {
+      if (help && !help.hidden) {
+        toggleHelp(false);
+        return;
+      }
+      if (tip) {
+        hideTip();
+        return;
+      }
+      if (!isHidden()) setSidebar(false);
       return;
     }
+    if (e.key === "?") {
+      e.preventDefault();
+      toggleHelp();
+      return;
+    }
+    if (help && !help.hidden) return; // modal up — other shortcuts inert
     var box = document.getElementById("search-box");
     if (e.key === "/" && box) {
       e.preventDefault();
       box.focus();
       return;
     }
-    var sel = e.key === "ArrowLeft" ? ".pager a.prev"
-            : e.key === "ArrowRight" ? ".pager a.next" : null;
+    if (e.key === "t" && themeBtn) {
+      themeBtn.click();
+      return;
+    }
+    if (e.key === "w" && wideBtn) {
+      wideBtn.click();
+      return;
+    }
+    var sel =
+      e.key === "ArrowLeft" || e.key === "k"
+        ? ".pager a.prev"
+        : e.key === "ArrowRight" || e.key === "j"
+          ? ".pager a.next"
+          : null;
     if (!sel) return;
     var a = document.querySelector(sel);
     if (a) location.href = a.href;
@@ -576,6 +863,34 @@ SITE_JS = """\
       });
       h.appendChild(a);
     });
+
+  // -- copy button on code listings ------------------------------------------
+  // Technical readers lift snippets constantly; pre.textContent is clean
+  // text even with Pygments <code> markup inside. The button lives in a
+  // wrapper, not inside the pre, so overflow-x scrolling can't push it
+  // off-screen.
+  document.querySelectorAll(".content pre").forEach(function (pre) {
+    if (!pre.textContent.trim()) return;
+    var w = document.createElement("div");
+    w.className = "pre-wrap";
+    pre.parentNode.insertBefore(w, pre);
+    w.appendChild(pre);
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "copy-btn";
+    b.textContent = "Copy";
+    b.setAttribute("aria-label", "Copy code to clipboard");
+    b.addEventListener("click", function () {
+      copyText(pre.textContent);
+      b.classList.add("copied");
+      b.textContent = "Copied";
+      setTimeout(function () {
+        b.classList.remove("copied");
+        b.textContent = "Copy";
+      }, 1200);
+    });
+    w.appendChild(b);
+  });
 
   // -- scroll spy -----------------------------------------------------------
   var spyLinks = [], spyEls = [];
@@ -1027,7 +1342,9 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     if authors:
         hero += f'<p class="authors">{escape(authors)}</p>'
     first = "chapters/" + _page_name(flat[0]["filename"]) if flat else "toc.html"
-    hero += f'<p><a href="{_attr(first)}">Start reading &rarr;</a></p>'
+    # class="start" lets site.js turn this into a "Continue reading"
+    # resume link once the reader has a progress history.
+    hero += f'<p><a class="start" href="{_attr(first)}">Start reading &rarr;</a></p>'
     og = (
         f'<meta property="og:title" content="{_attr(title)}"/>'
         '<meta property="og:type" content="book"/>'
