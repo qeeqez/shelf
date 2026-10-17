@@ -55,7 +55,8 @@ and save the output to a file, then `--import-cookies cookies.json`.
   `brew install pango` on macOS)
 - `--web` — also produce a browsable static site at
   `Books/<Book Title> (<id>)/web/index.html` (sre.google-style layout:
-  collapsible sidebar TOC, prev/next pager, `←`/`→` keyboard nav)
+  collapsible sidebar TOC, prev/next pager, `←`/`→` keyboard nav,
+  instant client-side search via a build-time index — no server needed)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session

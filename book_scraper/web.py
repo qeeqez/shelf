@@ -1,5 +1,6 @@
 """Generate a static web-reader version of the book (sre.google-style)."""
 
+import json
 import os
 import shutil
 from xml.sax.saxutils import escape
@@ -28,6 +29,30 @@ header.top .spacer{flex:1}
 header.top a.toc-link{color:var(--muted);font-size:14px;padding:6px 12px;
 border-radius:6px}
 header.top a.toc-link:hover{background:#f1f3f4;text-decoration:none}
+.search{position:relative}
+#search-box{width:220px;max-width:38vw;padding:6px 14px;
+border:1px solid var(--line);border-radius:16px;font-size:14px;outline:none;
+background:#f8f9fa}
+#search-box:focus{background:#fff;border-color:var(--accent);
+box-shadow:0 0 0 2px #e8f0fe}
+.search-results{position:absolute;top:44px;right:0;width:min(480px,92vw);
+max-height:70vh;overflow-y:auto;background:#fff;border:1px solid var(--line);
+border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18);z-index:30}
+.search-results a.result{display:block;padding:10px 14px;
+border-bottom:1px solid #f1f3f4;color:var(--fg)}
+.search-results a.result:last-child{border-bottom:0}
+.search-results a.result:hover,.search-results a.result.sel{
+background:#f6f9ff;text-decoration:none}
+.search-results .r-title{font-weight:600;font-size:14px}
+.search-results .r-snip{font-size:13px;color:var(--muted);line-height:1.45;
+overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;
+-webkit-box-orient:vertical}
+.search-results .r-snip mark{background:#fff3a0;padding:0 1px;border-radius:2px}
+.search-results .no-results{padding:14px;color:var(--muted);font-size:14px}
+@media (max-width:640px){
+#search-box{width:110px}
+.search-results{position:fixed;top:56px;left:8px;right:8px;width:auto}
+}
 nav.sidebar{position:fixed;top:56px;left:0;bottom:0;width:300px;overflow-y:auto;
 border-right:1px solid var(--line);background:#fff;padding:12px 0 40px;
 transition:transform .2s ease;z-index:15}
@@ -116,6 +141,122 @@ SITE_JS = """\
   });
   var act = document.querySelector("nav.sidebar a.active");
   if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
+
+  // -- client-side search --------------------------------------------------
+  var box = document.getElementById("search-box");
+  var res = document.getElementById("search-results");
+  var idx = null, idxLoading = false, sel = -1;
+
+  function ensureIndex() {
+    if (idx || idxLoading) return;
+    idxLoading = true;
+    var s = document.createElement("script");
+    s.src = "assets/search-index.js";
+    s.onload = function () {
+      idx = window.BS_SEARCH || [];
+      for (var i = 0; i < idx.length; i++) {
+        idx[i]._tl = idx[i].t.toLowerCase();
+        idx[i]._sl = idx[i].s.toLowerCase();
+      }
+    };
+    document.head.appendChild(s);
+  }
+
+  function hideResults() { if (res) res.hidden = true; sel = -1; }
+
+  function highlight(snippet, terms) {
+    var frag = document.createDocumentFragment(), pos = 0;
+    var low = snippet.toLowerCase();
+    while (pos < snippet.length) {
+      var next = -1, term = "";
+      for (var i = 0; i < terms.length; i++) {
+        var p = low.indexOf(terms[i], pos);
+        if (p >= 0 && (next < 0 || p < next)) { next = p; term = terms[i]; }
+      }
+      if (next < 0) {
+        frag.appendChild(document.createTextNode(snippet.slice(pos)));
+        break;
+      }
+      frag.appendChild(document.createTextNode(snippet.slice(pos, next)));
+      var m = document.createElement("mark");
+      m.textContent = snippet.slice(next, next + term.length);
+      frag.appendChild(m);
+      pos = next + term.length;
+    }
+    return frag;
+  }
+
+  function doSearch() {
+    var q = box.value.toLowerCase().trim();
+    if (!idx || q.length < 2) { hideResults(); return; }
+    var terms = q.split(/\\s+/).filter(Boolean);
+    var out = [];
+    for (var i = 0; i < idx.length; i++) {
+      var e = idx[i], first = -1, score = 0, ok = true;
+      for (var w = 0; w < terms.length; w++) {
+        var tp = e._tl.indexOf(terms[w]);
+        var sp = e._sl.indexOf(terms[w]);
+        if (tp < 0 && sp < 0) { ok = false; break; }
+        if (tp >= 0) score += 30;
+        if (sp >= 0) {
+          score += Math.min(e._sl.split(terms[w]).length - 1, 20);
+          if (first < 0 || sp < first) first = sp;
+        }
+      }
+      if (ok) out.push({ e: e, score: score, pos: Math.max(0, first) });
+    }
+    out.sort(function (a, b) { return b.score - a.score; });
+    res.innerHTML = ""; sel = -1;
+    if (!out.length) {
+      res.innerHTML = '<div class="no-results">No results</div>';
+      res.hidden = false;
+      return;
+    }
+    out.slice(0, 20).forEach(function (r) {
+      var a = document.createElement("a");
+      a.href = r.e.u;
+      a.className = "result";
+      var t = document.createElement("div");
+      t.className = "r-title";
+      t.textContent = r.e.t;
+      var sn = document.createElement("div");
+      sn.className = "r-snip";
+      var from = Math.max(0, r.pos - 70), to = r.pos + 110;
+      if (from > 0) sn.appendChild(document.createTextNode("…"));
+      sn.appendChild(highlight(r.e.s.slice(from, to), terms));
+      if (to < r.e.s.length) sn.appendChild(document.createTextNode("…"));
+      a.appendChild(t);
+      a.appendChild(sn);
+      res.appendChild(a);
+    });
+    res.hidden = false;
+  }
+
+  var deb;
+  if (box && res) {
+    box.addEventListener("focus", ensureIndex);
+    box.addEventListener("input", function () {
+      ensureIndex();
+      clearTimeout(deb);
+      deb = setTimeout(doSearch, 120);
+    });
+    box.addEventListener("keydown", function (e) {
+      var items = res.querySelectorAll("a.result");
+      if (e.key === "Escape") { hideResults(); box.blur(); }
+      else if (e.key === "ArrowDown") {
+        e.preventDefault(); sel = Math.min(sel + 1, items.length - 1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault(); sel = Math.max(sel - 1, 0);
+      } else if (e.key === "Enter") {
+        var target = items[sel < 0 ? 0 : sel];
+        if (target) location.href = target.href;
+      } else { return; }
+      items.forEach(function (a, i) { a.classList.toggle("sel", i === sel); });
+    });
+    document.addEventListener("click", function (e) {
+      if (!res.contains(e.target) && e.target !== box) hideResults();
+    });
+  }
 })();
 """
 
@@ -134,6 +275,11 @@ PAGE = """\
  aria-controls="sidebar" aria-expanded="true">&#9776;</button>
 <span class="booktitle"><a href="index.html">{book_title}</a></span>
 <span class="spacer"></span>
+<div class="search">
+<input id="search-box" type="search" placeholder="Search book…"
+ autocomplete="off" spellcheck="false" aria-label="Search this book"/>
+<div id="search-results" class="search-results" hidden></div>
+</div>
 <a class="toc-link" href="toc.html">Contents</a>
 </header>
 <nav class="sidebar" id="sidebar">{sidebar}</nav>
@@ -179,6 +325,53 @@ def _chapter_body(path):
         html.tostring(el, encoding="unicode") for el in body
     )
     return styles, body_html
+
+
+SECTION_TAGS = frozenset(("h1", "h2", "h3", "h4"))
+
+
+def _nearest_id(el):
+    while el is not None:
+        i = el.get("id")
+        if i:
+            return i
+        el = el.getparent()
+    return ""
+
+
+def _search_index(chapters, oebps_dir):
+    """One entry per heading-delimited section: {t: title, u: url, s: text}."""
+    entries = []
+    for ch in chapters:
+        path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
+        if not os.path.isfile(path):
+            continue
+        with open(path, "rb") as f:
+            raw = f.read()
+        if b'epub:type="index"' in raw:
+            continue  # the index chapter is already an index
+        doc = html.fromstring(raw)
+        body = doc.find("body")
+        if body is None:
+            continue
+        page = _page_name(ch["filename"])
+        cur = {"t": ch["title"], "u": page, "s": []}
+        for el in body.iter():
+            if el.tag in SECTION_TAGS:
+                text = " ".join(" ".join(cur["s"]).split())
+                if text:
+                    entries.append({"t": cur["t"], "u": cur["u"], "s": text})
+                frag = _nearest_id(el)
+                title = " ".join("".join(el.itertext()).split()) or cur["t"]
+                cur = {"t": title, "u": page + (f"#{frag}" if frag else ""), "s": []}
+            if el.text:
+                cur["s"].append(el.text)
+            if el.tail:
+                cur["s"].append(el.tail)
+        text = " ".join(" ".join(cur["s"]).split())
+        if text:
+            entries.append({"t": cur["t"], "u": cur["u"], "s": text})
+    return entries
 
 
 def _first_stem_match(items, stem):
@@ -286,6 +479,13 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
             into=_page_name(ch["filename"]),
             extra_head=styles,
         )
+
+    # Client-side search index
+    entries = _search_index(flat, oebps_dir)
+    with open(os.path.join(assets, "search-index.js"), "w") as f:
+        f.write("window.BS_SEARCH=")
+        f.write(json.dumps(entries, ensure_ascii=False, separators=(",", ":")))
+        f.write(";")
 
     # Full TOC page
     render(
