@@ -13,7 +13,7 @@ SITE_CSS = """\
 --active:#e8f0fe;--input:#f8f9fa;--input-focus:#fff;--mark:#fff3a0;
 --mark-fg:inherit;--card-bg:transparent;--card-fg:inherit;--card-pad:0;
 --card-r:0;--elev:0 8px 28px rgba(0,0,0,.18);
---ring:0 0 0 2px #e8f0fe;--target:rgba(26,115,232,.4);
+--ring:0 0 0 2px #e8f0fe;
 --hero-shadow:0 2px 12px rgba(0,0,0,.12);
 --content-muted:#5f6368;--content-accent:#1a73e8}
 :root[data-theme="dark"]{color-scheme:dark;--fg:#e8eaed;--muted:#9aa0a6;--line:#3c4043;
@@ -42,14 +42,15 @@ scrollbar-color:var(--muted) transparent}
 ::-webkit-scrollbar-corner{background:transparent}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg);font-size:17px;
-line-height:1.65}
+line-height:1.65;text-size-adjust:100%;overflow-x:hidden}
 a{color:var(--accent);text-decoration:none}
 .skip{position:absolute;left:-9999px;top:0;z-index:50}
 .skip:focus{left:8px;top:8px;background:var(--accent);color:#fff;
 padding:8px 14px;border-radius:6px}
 a:hover{text-decoration:underline}
 header.top{position:fixed;top:0;left:0;right:0;height:56px;display:flex;
-align-items:center;gap:6px;padding:0 12px;background:var(--chrome);
+align-items:center;gap:6px;padding:0 max(12px,env(safe-area-inset-right)) 0
+max(12px,env(safe-area-inset-left));background:var(--chrome);
 border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
@@ -64,7 +65,7 @@ border-radius:6px}
 header.top a.toc-link:hover{background:var(--hover);text-decoration:none}
 .search{position:relative}
 #search-box{width:220px;max-width:38vw;padding:6px 14px;
-border:1px solid var(--line);border-radius:16px;font-size:14px;outline:none;
+border:1px solid var(--line);border-radius:16px;font-size:16px;outline:none;
 background:var(--input);color:var(--fg)}
 #search-box:focus{background:var(--input-focus);border-color:var(--accent);
 box-shadow:var(--ring)}
@@ -89,9 +90,12 @@ padding:0 1px;border-radius:2px}
 .search-results{position:fixed;top:56px;left:8px;right:8px;width:auto}
 }
 nav.sidebar{position:fixed;top:56px;left:0;bottom:0;width:300px;overflow-y:auto;
-border-right:1px solid var(--line);background:var(--chrome);padding:12px 0 40px;
+border-right:1px solid var(--line);background:var(--chrome);
+padding:12px 0 calc(40px + env(safe-area-inset-bottom));
 transition:transform .2s ease;z-index:15;scrollbar-width:thin;
 scrollbar-color:var(--muted) transparent}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.38);opacity:0;
+visibility:hidden;transition:opacity .2s ease,visibility .2s;z-index:14}
 body.sidebar-hidden nav.sidebar{transform:translateX(-104%)}
 nav.sidebar ul{list-style:none;margin:0;padding:0}
 nav.sidebar li a{display:block;padding:6px 24px;color:var(--fg);font-size:14px;
@@ -104,7 +108,6 @@ nav.sidebar ul ul ul a{padding-left:60px}
 nav.sidebar ul ul ul ul a{padding-left:78px}
 main{padding:76px 24px 64px;margin-left:300px;transition:margin .2s ease}
 body.sidebar-hidden main{margin-left:0}
-main [id]:target{box-shadow:0 0 0 3px var(--target);border-radius:2px}
 .content{max-width:740px;margin:0 auto;background:var(--card-bg);
 color:var(--card-fg);border-radius:var(--card-r);padding:var(--card-pad)}
 .content a{color:var(--content-accent)}
@@ -154,7 +157,12 @@ border-radius:4px;box-shadow:var(--hero-shadow)}
 nav.sidebar{box-shadow:2px 0 14px rgba(0,0,0,.18);
 transform:translateX(-104%)}
 body.sidebar-open nav.sidebar{transform:none}
+body.sidebar-open .scrim{opacity:1;visibility:visible}
+nav.sidebar li a{padding-top:9px;padding-bottom:9px}
 main{margin-left:0}
+}
+@media (max-width:480px){
+header.top .booktitle{display:none}
 }
 /* Content goes dark via invert+hue-rotate: lightness flips, hues survive
    (book CSS colors like #C30/#069 stay readable). Images invert too —
@@ -186,17 +194,36 @@ SITE_JS = """\
   if (stored === "hidden") document.body.classList.add("sidebar-hidden");
   if (stored === "open" && narrow()) document.body.classList.add("sidebar-open");
   var btn = document.getElementById("menu-btn");
+  var setSidebar = function (open) {
+    if (narrow()) {
+      document.body.classList.toggle("sidebar-open", open);
+      document.body.classList.remove("sidebar-hidden");
+    } else {
+      document.body.classList.toggle("sidebar-hidden", !open);
+      document.body.classList.remove("sidebar-open");
+    }
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    try {
+      if (!narrow()) localStorage.setItem(key, open ? "open" : "hidden");
+    } catch (e) {}
+  };
   if (btn) {
     btn.setAttribute("aria-expanded", isHidden() ? "false" : "true");
     btn.addEventListener("click", function () {
-      if (narrow()) document.body.classList.toggle("sidebar-open");
-      else document.body.classList.toggle("sidebar-hidden");
-      btn.setAttribute("aria-expanded", isHidden() ? "false" : "true");
-      try {
-        localStorage.setItem(key, isHidden() ? "hidden" : "open");
-      } catch (e) {}
+      setSidebar(isHidden());
     });
   }
+  var scrim = document.getElementById("scrim");
+  if (scrim) {
+    scrim.addEventListener("click", function () {
+      setSidebar(false);
+    });
+  }
+  document.querySelectorAll("nav.sidebar a").forEach(function (a) {
+    a.addEventListener("click", function () {
+      if (narrow()) setSidebar(false);
+    });
+  });
   // -- theme (system / light / dark) --------------------------------------
   var themeKey = "bs-theme";
   var themeBtn = document.getElementById("theme-btn");
@@ -231,6 +258,10 @@ SITE_JS = """\
   }
   document.addEventListener("keydown", function (e) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === "Escape" && !isHidden()) {
+      setSidebar(false);
+      return;
+    }
     var box = document.getElementById("search-box");
     if (e.key === "/" && box) {
       e.preventDefault();
@@ -371,7 +402,7 @@ PAGE = """\
 <meta charset="utf-8"/>
 <script>(function(){var t="system";try{t=localStorage.getItem("bs-theme")||"system"}catch(e){}
 document.documentElement.dataset.theme=t;})()</script>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
 <title>{page_title}</title>
@@ -393,6 +424,7 @@ document.documentElement.dataset.theme=t;})()</script>
  title="Theme: system">&#9680;</button>
 <a class="toc-link" href="toc.html">Contents</a>
 </header>
+<div class="scrim" id="scrim"></div>
 <nav class="sidebar" id="sidebar">{sidebar}</nav>
 <main>
 <div class="content" id="content">
