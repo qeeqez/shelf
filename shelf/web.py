@@ -123,11 +123,13 @@ body.sidebar-hidden nav.sidebar{transform:translateX(-104%)}
 nav.sidebar ul{list-style:none;margin:0;padding:0}
 nav.sidebar li a{display:block;padding:6px 24px;color:var(--fg);font-size:14px;
 line-height:1.4}
+nav.sidebar li span.branch{display:block;padding:6px 24px;color:var(--muted);
+font-size:13px;line-height:1.4;font-weight:600}
 nav.sidebar li a:hover{background:var(--hover);text-decoration:none}
 nav.sidebar li a.active{color:var(--accent);background:var(--active)}
-nav.sidebar ul ul a{padding-left:42px}
-nav.sidebar ul ul ul a{padding-left:60px}
-nav.sidebar ul ul ul ul a{padding-left:78px}
+nav.sidebar ul ul a,nav.sidebar ul ul span.branch{padding-left:42px}
+nav.sidebar ul ul ul a,nav.sidebar ul ul ul span.branch{padding-left:60px}
+nav.sidebar ul ul ul ul a,nav.sidebar ul ul ul ul span.branch{padding-left:78px}
 main{padding:76px 24px 64px;margin-left:300px;transition:margin .2s ease}
 body.sidebar-hidden main{margin-left:0}
 .content{max-width:740px;margin:0 auto;background:var(--card-bg);
@@ -460,6 +462,7 @@ SITE_JS = """\
       var a = document.createElement("a");
       a.href = r.e.u;
       a.className = "result";
+      a.setAttribute("role", "option");
       var t = document.createElement("div");
       t.className = "r-title";
       t.textContent = r.e.t;
@@ -495,7 +498,10 @@ SITE_JS = """\
         var target = items[sel < 0 ? 0 : sel];
         if (target) location.href = target.href;
       } else { return; }
-      items.forEach(function (a, i) { a.classList.toggle("sel", i === sel); });
+      items.forEach(function (a, i) {
+        a.classList.toggle("sel", i === sel);
+        a.setAttribute("aria-selected", i === sel ? "true" : "false");
+      });
     });
     document.addEventListener("click", function (e) {
       if (!res.contains(e.target) && e.target !== box) hideResults();
@@ -615,10 +621,10 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
  d="M2 4h12M2 8h12M2 12h12"/></svg></button>
 <span class="booktitle"><a href="index.html">{book_title}</a></span>
 <span class="spacer"></span>
-<div class="search">
+<div class="search" role="search">
 <input id="search-box" type="search" placeholder="Search book…"
  autocomplete="off" spellcheck="false" aria-label="Search this book"/>
-<div id="search-results" class="search-results" hidden></div>
+<div id="search-results" class="search-results" role="listbox" hidden></div>
 </div>
 <button id="wide-btn" aria-label="Toggle full-width content"
  aria-pressed="false" title="Toggle full-width content"><svg width="18"
@@ -631,7 +637,7 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
 <a class="toc-link" href="toc.html">Contents</a>
 </header>
 <div class="scrim" id="scrim"></div>
-<nav class="sidebar" id="sidebar">{sidebar}</nav>
+<nav class="sidebar" id="sidebar" aria-label="Table of contents">{sidebar}</nav>
 <main>
 <div class="content" id="content">
 {body}
@@ -672,7 +678,13 @@ def _chapter_body(path):
     for img in body.iter("img"):
         img.set("loading", "lazy")
         img.set("decoding", "async")
-    styles = "".join(html.tostring(s, encoding="unicode") for s in doc.iter("style"))
+    # Styles living inside <body> already ride along in body_html — hoisting
+    # them into extra_head as well would duplicate every rule.
+    styles = "".join(
+        html.tostring(s, encoding="unicode")
+        for s in doc.iter("style")
+        if body not in s.iterancestors()
+    )
     body_html = (body.text or "") + "".join(
         html.tostring(el, encoding="unicode") for el in body
     )
@@ -680,6 +692,9 @@ def _chapter_body(path):
 
 
 SECTION_TAGS = frozenset(("h1", "h2", "h3", "h4"))
+# Elements whose text content is markup noise, not prose — indexing it gives
+# search snippets full of CSS rules and MathML tag soup.
+SKIP_TEXT_TAGS = frozenset(("style", "script", "noscript", "math", "svg"))
 
 
 def _nearest_id(el):
@@ -715,7 +730,12 @@ def _search_index(chapters, oebps_dir):
                 frag = _nearest_id(el)
                 title = " ".join("".join(el.itertext()).split()) or cur["t"]
                 cur = {"t": title, "u": page + (f"#{frag}" if frag else ""), "s": []}
-            if el.text:
+            # Skip text belonging to markup-noise elements — including text
+            # nested deeper inside them (e.g. <mi> inside <math>).
+            noise = el.tag in SKIP_TEXT_TAGS or any(
+                a.tag in SKIP_TEXT_TAGS for a in el.iterancestors()
+            )
+            if el.text and not noise:
                 cur["s"].append(el.text)
             if el.tail:
                 cur["s"].append(el.tail)
@@ -740,17 +760,18 @@ def _first_stem_match(items, stem):
 def _sidebar_ul(items, active_item):
     lis = []
     for item in items:
-        href = _page_name(item["href"])
-        if item["fragment"]:
-            href += "#" + item["fragment"]
         cls = ' class="active" aria-current="page"' if item is active_item else ""
         children = (
             _sidebar_ul(item["children"], active_item) if item["children"] else ""
         )
-        lis.append(
-            f'<li><a href="{escape(href)}"{cls}>{escape(item["label"])}</a>'
-            f"{children}</li>"
-        )
+        if item["href"]:
+            href = _page_name(item["href"])
+            if item["fragment"]:
+                href += "#" + item["fragment"]
+            label = f'<a href="{escape(href)}"{cls}>{escape(item["label"])}</a>'
+        else:
+            label = f'<span class="branch">{escape(item["label"])}</span>'
+        lis.append(f"<li>{label}{children}</li>")
     return "<ul>" + "".join(lis) + "</ul>"
 
 

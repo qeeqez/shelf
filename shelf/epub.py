@@ -119,6 +119,12 @@ def _item_id(filename):
     return escape("".join(filename.split(".")[:-1]))
 
 
+def _asset_id(name):
+    # Include the extension so same-stem files (cover.png + cover.svg,
+    # font.ttf + font.otf) can't produce duplicate manifest ids.
+    return escape(name.replace(".", "-"))
+
+
 def _image_media_type(filename):
     ext = filename.rsplit(".", 1)[-1].lower()
     return IMAGE_MEDIA_TYPES.get(ext, "image/" + ext)
@@ -229,20 +235,15 @@ class EpubBuilder:
         for name in sorted(set(os.listdir(self.images_path))):
             props = ' properties="cover-image"' if name == cover_name else ""
             manifest.append(
-                '<item id="img_{}" href="Images/{}" media-type="{}"{}/>'.format(
-                    escape("".join(name.split(".")[:-1])),
-                    name,
-                    _image_media_type(name),
-                    props,
-                )
+                f'<item id="img_{_asset_id(name)}" href="Images/{name}"'
+                f' media-type="{_image_media_type(name)}"{props}/>'
             )
         for name in sorted(set(os.listdir(self.fonts_path))):
             ext = name.rsplit(".", 1)[-1].lower()
             media_type = FONT_MEDIA_TYPES.get(ext, f"font/{ext}")
             manifest.append(
-                '<item id="font_{}" href="Fonts/{}" media-type="{}"/>'.format(
-                    escape("".join(name.split(".")[:-1])), name, media_type
-                )
+                f'<item id="font_{_asset_id(name)}" href="Fonts/{name}"'
+                f' media-type="{media_type}"/>'
             )
         for i, name in enumerate(sorted(os.listdir(self.css_path))):
             manifest.append(
@@ -269,11 +270,7 @@ class EpubBuilder:
             f"<dc:subject>{escape(s)}</dc:subject>"
             for s in self.book_info.get("subjects", [])
         )
-        cover_id = (
-            "img_" + escape("".join(os.path.basename(cover_src).split(".")[:-1]))
-            if cover_src
-            else ""
-        )
+        cover_id = "img_" + _asset_id(os.path.basename(cover_src)) if cover_src else ""
         optional_dc = []
         if self.book_info.get("issued"):
             optional_dc.append(f"<dc:date>{escape(self.book_info['issued'])}</dc:date>")
@@ -315,6 +312,20 @@ class EpubBuilder:
             escape(self.book_info.get("language") or "en-US"),
         )
 
+    def _first_href(self, item):
+        """First href in this subtree — container headings carry no href of
+        their own, so NCX navPoints point at the first child that has one."""
+        if item["href"]:
+            src = _epub_href(item["href"])
+            if item["fragment"]:
+                src += "#" + item["fragment"]
+            return src
+        for child in item["children"]:
+            found = self._first_href(child)
+            if found:
+                return found
+        return ""
+
     def _parse_toc_ncx(self, items, counter=0, max_depth=0, playorders=None):
         if playorders is None:
             playorders = {}
@@ -322,9 +333,7 @@ class EpubBuilder:
         for item in items:
             counter += 1
             max_depth = max(max_depth, int(item["depth"]))
-            src = _epub_href(item["href"])
-            if item["fragment"]:
-                src += "#" + item["fragment"]
+            src = self._first_href(item)
             playorder = playorders.setdefault(src, counter)
             result += (
                 '<navPoint id="navpoint-{}" playOrder="{}">'
@@ -357,14 +366,17 @@ class EpubBuilder:
     def _toc_ol(self, items):
         lis = []
         for item in items:
-            href = _epub_href(item["href"])
-            if item["fragment"]:
-                href += "#" + item["fragment"]
             children = self._toc_ol(item["children"]) if item["children"] else ""
-            lis.append(
-                f'<li><a href="{escape(href)}">'
-                f"{escape(item['label'])}</a>{children}</li>"
-            )
+            if item["href"]:
+                href = _epub_href(item["href"])
+                if item["fragment"]:
+                    href += "#" + item["fragment"]
+                label = f'<a href="{escape(href)}">{escape(item["label"])}</a>'
+            else:
+                # Container heading with no target of its own — a span, not a
+                # dead link (nav doc spec allows span for unlinked entries).
+                label = f"<span>{escape(item['label'])}</span>"
+            lis.append(f"<li>{label}{children}</li>")
         return "<ol>\n" + "\n".join(lis) + "\n</ol>"
 
     def _chapter_epub_type(self, filename):

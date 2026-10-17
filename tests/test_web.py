@@ -81,6 +81,31 @@ class TestSidebar:
         out = _sidebar_ul(TOC, _first_stem_match(TOC, None))
         assert 'class="active"' not in out
 
+    def test_container_heading_renders_span(self):
+        """An href-less TOC entry used to produce href=".html" — a dead link."""
+        items = [
+            {
+                "id": "part1",
+                "label": "Part I",
+                "href": "",
+                "fragment": "",
+                "depth": 1,
+                "children": [
+                    {
+                        "id": "c1",
+                        "label": "Ch 1",
+                        "href": "ch01.html",
+                        "fragment": "",
+                        "depth": 2,
+                        "children": [],
+                    }
+                ],
+            }
+        ]
+        out = _sidebar_ul(items, None)
+        assert '<span class="branch">Part I</span>' in out
+        assert 'href=".html"' not in out
+
 
 PAGER_CH = [
     {"filename": "a.html", "title": "A"},
@@ -137,6 +162,24 @@ class TestSearchIndex:
         )
         assert entries == []
 
+    def test_markup_noise_not_indexed(self, tmp_path):
+        """style/script/math text is markup, not prose — keep it out."""
+        (tmp_path / "ch01.xhtml").write_text(
+            '<?xml version="1.0"?><html><body><div class="chapter" id="c">'
+            "<h1>T</h1><p>real prose</p>"
+            "<style>.x{color:red}</style><script>var z=1;</script>"
+            '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>zzq</mi></math>'
+            "</div></body></html>"
+        )
+        entries = _search_index(
+            [{"filename": "ch01.html", "title": "C"}], str(tmp_path)
+        )
+        text = " ".join(e["s"] for e in entries)
+        assert "real prose" in text
+        assert "color:red" not in text
+        assert "var z=1" not in text
+        assert "zzq" not in text
+
 
 class TestChapterBody:
     def test_inline_styles_carried(self, tmp_path):
@@ -147,3 +190,14 @@ class TestChapterBody:
         styles, body = _chapter_body(str(tmp_path / "cover.xhtml"))
         assert "display:table" in styles
         assert 'id="Cover"' in body
+
+    def test_body_style_not_duplicated(self, tmp_path):
+        """A <style> inside <body> ships in body_html already — hoisting it
+        into extra_head as well would emit every rule twice."""
+        (tmp_path / "ch01.xhtml").write_text(
+            '<?xml version="1.0"?><html><body><div id="c">'
+            "<style>p{color:blue}</style><p>x</p></div></body></html>"
+        )
+        styles, body = _chapter_body(str(tmp_path / "ch01.xhtml"))
+        assert "color:blue" in body
+        assert "color:blue" not in styles

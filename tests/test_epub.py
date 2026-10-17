@@ -84,6 +84,51 @@ class TestTocNcx:
         assert 'content="1234567890" name="dtb:uid"' in ncx
         assert "ID:ISBN:" not in ncx
 
+    def test_container_heading_uses_first_child_href(self):
+        """TOC container headings have no href — the navPoint must point at
+        the first descendant target, not an empty src."""
+        items = [
+            {
+                "id": "part1",
+                "label": "Part I",
+                "href": "",
+                "fragment": "",
+                "depth": 1,
+                "children": [
+                    {
+                        "id": "ch01",
+                        "label": "Chapter 1",
+                        "href": "ch01.html",
+                        "fragment": "",
+                        "depth": 2,
+                        "children": [],
+                    }
+                ],
+            }
+        ]
+        b = make_builder("/tmp/x")
+        navmap, _, _ = b._parse_toc_ncx(items)
+        assert 'src="ch01.xhtml"' in navmap
+        assert 'src=""' not in navmap
+
+
+class TestTocOl:
+    def test_container_heading_renders_span_not_dead_link(self):
+        items = [
+            {
+                "id": "part1",
+                "label": "Part I",
+                "href": "",
+                "fragment": "",
+                "depth": 1,
+                "children": [],
+            }
+        ]
+        b = make_builder("/tmp/x")
+        out = b._toc_ol(items)
+        assert "<span>Part I</span>" in out
+        assert 'href=""' not in out
+
 
 class TestContentOpf:
     def _write_chapter(self, b, name, inner=""):
@@ -157,6 +202,20 @@ class TestContentOpf:
             [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
         )
         assert '<spine toc="ncx">' in opf
+
+    def test_same_stem_assets_get_distinct_ids(self, tmp_path):
+        """cover.png + cover.svg must not both get id="img_cover"."""
+        b = make_builder(tmp_path)
+        b.write_image("cover.png", b"\x89PNG")
+        b.write_image("cover.svg", b"<svg/>")
+        self._write_chapter(b, "ch01.xhtml")
+        opf = b._content_opf(
+            [{"filename": "ch01.xhtml", "title": "C1"}], "", "ch01.xhtml"
+        )
+        assert 'id="img_cover-png"' in opf
+        assert 'id="img_cover-svg"' in opf
+        ids = re.findall(r'<item id="([^"]+)"', opf)
+        assert len(ids) == len(set(ids))
 
 
 def test_epub_href():
