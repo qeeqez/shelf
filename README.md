@@ -58,6 +58,8 @@ and save the output to a file, then `--import-cookies cookies.json`.
   collapsible sidebar TOC, prev/next pager, `←`/`→` keyboard nav,
   instant client-side search via a build-time index — no server needed)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
+- `--validate` — run `epubcheck` on the EPUB after building, when installed
+  (`brew install epubcheck`)
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session
 
@@ -67,6 +69,16 @@ and save the output to a file, then `--import-cookies cookies.json`.
 `Books/<Book Title> (<id>)/` working
 directory with the unpacked content. Re-running after an interruption resumes
 where it left off — delete the working directory to force a clean download.
+Raw chapter HTML is kept in `.cache/` inside it, so re-transforming (e.g.
+after editing `transform.py`) doesn't hit the API again.
+
+## Development
+
+```console
+uv run pytest tests/   # unit tests
+uv run ruff check .    # lint
+uv run ruff format .   # format
+```
 
 ## Notes
 

@@ -215,6 +215,11 @@ def build_parser():
         help="Also produce a browsable web version (sre.google-style layout)",
     )
     p.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate the EPUB with epubcheck when installed",
+    )
+    p.add_argument(
         "-o",
         "--output",
         metavar="DIR",
@@ -259,6 +264,7 @@ def main(argv=None):
             kindle=args.kindle,
             pdf=args.pdf,
             web=args.web,
+            validate=args.validate,
             log=printer.log,
             progress=printer.progress,
         ).run(book_id)

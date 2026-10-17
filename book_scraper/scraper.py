@@ -2,6 +2,8 @@
 
 import os
 import re
+import shutil
+import subprocess
 from urllib.parse import urljoin
 
 from lxml import html
@@ -123,6 +125,7 @@ class BookScraper:
         kindle=False,
         pdf=False,
         web=False,
+        validate=False,
         log=print,
         progress=None,
     ):
@@ -131,6 +134,7 @@ class BookScraper:
         self.kindle = kindle
         self.pdf = pdf
         self.web = web
+        self.validate = validate
         self.log = log
         self.progress = progress or (lambda done, total, label="": None)
 
@@ -176,7 +180,23 @@ class BookScraper:
                 continue
 
             chapter_css = [s["url"] for s in ch["stylesheets"]] + ch["site_styles"]
-            root = api.get_chapter_root(ch)
+            # Cache raw HTML so re-transforming (after transform changes or
+            # deleted .xhtml) doesn't hit the API again.
+            cache_file = os.path.join(work_dir, ".cache", ch["filename"])
+            if os.path.isfile(cache_file):
+                with open(cache_file, encoding="utf-8") as f:
+                    raw = f.read()
+            else:
+                raw = api.get_chapter_html(ch)
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    f.write(raw)
+            try:
+                root = html.fromstring(raw, base_url=C.SAFARI_BASE_URL)
+            except (html.etree.ParseError, html.etree.ParserError) as exc:
+                raise ApiError(
+                    "Could not parse chapter {!r}".format(ch["title"])
+                ) from exc
             page_css, xhtml = tx.parse(root, chapter_css, first_page=(i == 0))
             builder.write_chapter(
                 out_name, tx.render_page(page_css, xhtml, title=ch["title"])
@@ -296,6 +316,41 @@ class BookScraper:
         )
         builder.finalize(chapters, toc, tx.cover, epub_path)
         self.log(f"Done: {epub_path}")
+
+        if self.validate:
+            self.log("Validating EPUB...")
+            epubcheck = shutil.which("epubcheck")
+            if not epubcheck:
+                self.log(
+                    "  epubcheck not installed — skipping (brew install epubcheck)"
+                )
+            else:
+                proc = subprocess.run(
+                    [epubcheck, epub_path],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+                lines = proc.stdout.splitlines()
+                problems = [
+                    line
+                    for line in lines
+                    if line.startswith(("FATAL", "ERROR", "WARNING"))
+                ]
+                for line in problems[:15]:
+                    self.log(f"  {line}")
+                if len(problems) > 15:
+                    self.log(f"  ... and {len(problems) - 15} more")
+                summary = next(
+                    (
+                        line
+                        for line in reversed(lines)
+                        if line.startswith(("Messages:", "No errors"))
+                    ),
+                    "",
+                )
+                self.log(f"  {summary or 'epubcheck finished'}")
 
         if self.pdf:
             self.log("Building PDF...")
