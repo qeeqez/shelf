@@ -4,3 +4,4 @@ __pycache__/
 Books/
 cookies.json
 .DS_Store
+.serena/
