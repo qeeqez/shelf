@@ -7,6 +7,14 @@ from xml.sax.saxutils import escape
 
 from lxml import html
 
+FALLBACK_ICON = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="12" fill="#1a73e8"/>
+<path d="M14 15c6-2 12-2 18 2v31c-6-4-12-4-18-2zM50 15c-6-2-12-2-18 2v31c6-4 12-4 18-2z"
+ fill="#fff"/>
+</svg>
+"""
+
 SITE_CSS = """\
 :root{color-scheme:light;--fg:#202124;--muted:#5f6368;--line:#dadce0;--accent:#1a73e8;
 --code:#f6f8fa;--bg:#fff;--chrome:#fff;--hover:#f1f3f4;--sel:#f6f9ff;
@@ -595,7 +603,7 @@ try{if(localStorage.getItem("bs-wide")==="1")document.documentElement.dataset.wi
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
 <title>{page_title}</title>
 {book_links}<link rel="stylesheet" href="assets/site.css"/>
-<link rel="icon" href="assets/icon.svg" type="image/svg+xml"/>{extra_head}
+{favicon}{extra_head}
 </head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
@@ -782,11 +790,14 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         f.write(SITE_CSS)
     with open(os.path.join(assets, "site.js"), "w") as f:
         f.write(SITE_JS)
-    icon_src = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "assets", "icon.svg"
-    )
-    if os.path.isfile(icon_src):
-        shutil.copy(icon_src, os.path.join(assets, "icon.svg"))
+    # The book's own cover is the favicon — instantly identifiable in tabs.
+    # Generic book glyph when the book has no cover.
+    if cover_src:
+        favicon = f'<link rel="icon" href="{escape(cover_src)}"/>'
+    else:
+        with open(os.path.join(assets, "icon.svg"), "w") as f:
+            f.write(FALLBACK_ICON)
+        favicon = '<link rel="icon" href="assets/icon.svg" type="image/svg+xml"/>'
 
     styles_dir = os.path.join(web_dir, "Styles")
     book_links = ""
@@ -815,6 +826,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         page = page.replace("{pager}", pager)
         page = page.replace("{body}", body)
         page = page.replace("{extra_head}", extra_head)
+        page = page.replace("{favicon}", favicon)
         with open(os.path.join(web_dir, into), "w") as f:
             f.write(page)
 
