@@ -8,7 +8,7 @@ from xml.sax.saxutils import escape
 from lxml import html
 
 SITE_CSS = """\
-:root{--fg:#202124;--muted:#5f6368;--line:#dadce0;--accent:#1a73e8;
+:root{color-scheme:light;--fg:#202124;--muted:#5f6368;--line:#dadce0;--accent:#1a73e8;
 --code:#f6f8fa;--bg:#fff;--chrome:#fff;--hover:#f1f3f4;--sel:#f6f9ff;
 --active:#e8f0fe;--input:#f8f9fa;--input-focus:#fff;--mark:#fff3a0;
 --mark-fg:inherit;--card-bg:transparent;--card-fg:inherit;--card-pad:0;
@@ -16,7 +16,7 @@ SITE_CSS = """\
 --ring:0 0 0 2px #e8f0fe;--target:rgba(26,115,232,.4);
 --hero-shadow:0 2px 12px rgba(0,0,0,.12);
 --content-muted:#5f6368;--content-accent:#1a73e8}
-:root[data-theme="dark"]{--fg:#e8eaed;--muted:#9aa0a6;--line:#3c4043;
+:root[data-theme="dark"]{color-scheme:dark;--fg:#e8eaed;--muted:#9aa0a6;--line:#3c4043;
 --accent:#8ab4f8;--bg:#17181a;--chrome:#1e1f21;
 --hover:#303134;--sel:#26292e;--active:#374a6b;--input:#2d2f31;
 --input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;--card-bg:#fdfdfd;
@@ -24,7 +24,7 @@ SITE_CSS = """\
 --elev:0 8px 28px rgba(0,0,0,.6);--ring:0 0 0 2px #374a6b;
 --hero-shadow:0 2px 16px rgba(0,0,0,.5)}
 @media (prefers-color-scheme:dark){
-:root:not([data-theme="light"]){--fg:#e8eaed;--muted:#9aa0a6;
+:root:not([data-theme="light"]){color-scheme:dark;--fg:#e8eaed;--muted:#9aa0a6;
 --line:#3c4043;--accent:#8ab4f8;--bg:#17181a;
 --chrome:#1e1f21;--hover:#303134;--sel:#26292e;--active:#374a6b;
 --input:#2d2f31;--input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;
@@ -146,16 +146,11 @@ body.sidebar-open nav.sidebar{transform:none}
 main{margin-left:0}
 }
 /* Content goes dark via invert+hue-rotate: lightness flips, hues survive
-   (book CSS colors like #C30/#069 stay readable). Images get counter-
-   inverted on a white backing so diagrams keep true colors. */
+   (book CSS colors like #C30/#069 stay readable). Images invert too —
+   diagrams become white-on-dark instead of white rectangles. */
 :root[data-theme="dark"] .content{filter:invert(1) hue-rotate(180deg)}
-:root[data-theme="dark"] .content img,:root[data-theme="dark"] .content svg{
-filter:invert(1) hue-rotate(180deg);background:#fff;border-radius:2px}
 @media (prefers-color-scheme:dark){
 :root:not([data-theme="light"]) .content{filter:invert(1) hue-rotate(180deg)}
-:root:not([data-theme="light"]) .content img,
-:root:not([data-theme="light"]) .content svg{
-filter:invert(1) hue-rotate(180deg);background:#fff;border-radius:2px}
 }
 @media print{
 header.top,nav.sidebar,.pager,.skip{display:none}
