@@ -1,5 +1,7 @@
 """Orchestrates downloading a book: chapters, assets, EPUB assembly."""
 
+import glob
+import json
 import os
 import re
 import shutil
@@ -100,6 +102,72 @@ def _font_faces(fonts_dir, css_text):
     return "".join(rules)
 
 
+META_VERSION = 1
+
+
+def _meta_path(work_dir):
+    return os.path.join(work_dir, "meta.json")
+
+
+def _save_meta(work_dir, payload):
+    """Persist everything needed to rebuild without a single listing call:
+    book info, chapter list, TOC, stylesheet registry, resolved asset URLs."""
+    payload = dict(payload, version=META_VERSION)
+    tmp = _meta_path(work_dir) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    os.replace(tmp, _meta_path(work_dir))
+
+
+def _load_meta(output_dir, book_id):
+    """Find a previous download's meta.json for this book. The work dir name
+    embeds the title, so glob by the trailing (book_id) suffix instead."""
+    hits = glob.glob(os.path.join(output_dir, f"* ({book_id})", "meta.json"))
+    for path in sorted(hits):
+        try:
+            with open(path, encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if (
+            isinstance(meta, dict)
+            and meta.get("version") == META_VERSION
+            and meta.get("book_id") == book_id
+            and meta.get("chapters")
+            and meta.get("info", {}).get("title")
+        ):
+            meta["_work_dir"] = os.path.dirname(path)
+            return meta
+    return None
+
+
+def offline_ready(output_dir, book_id):
+    """True when a fully-downloaded copy exists on disk — every chapter (or
+    its cached raw HTML), stylesheet, image and font is present, so a rebuild
+    needs no network at all."""
+    meta = _load_meta(output_dir, book_id)
+    if not meta or not meta.get("complete"):
+        return False
+    work_dir = meta["_work_dir"]
+    oebps = os.path.join(work_dir, "OEBPS")
+    cache = os.path.join(work_dir, ".cache")
+    for ch in meta["chapters"]:
+        xhtml = ch["filename"].replace(".html", ".xhtml")
+        if not (
+            os.path.isfile(os.path.join(oebps, xhtml))
+            or os.path.isfile(os.path.join(cache, ch["filename"]))
+        ):
+            return False
+    for i in range(len(meta.get("css", []))):
+        if not os.path.isfile(os.path.join(oebps, "Styles", f"Style{i:0>2}.css")):
+            return False
+    for sub, urls in (("Images", meta.get("images")), ("Fonts", meta.get("fonts"))):
+        for u in urls or []:
+            if not os.path.isfile(os.path.join(oebps, sub, _basename(u))):
+                return False
+    return True
+
+
 CSS_URL_RE = re.compile(r"url\((['\"]?)([^)'\"]+)(['\"]?)\)")
 
 REMOTE_RES_RE = re.compile(
@@ -168,25 +236,41 @@ class Downloader:
     def run(self, book_id):
         api = OreillyAPI(self.http, book_id)
 
-        self.log("Retrieving book info...")
-        info = api.get_book_info()
+        # A previous download's meta.json carries everything the listing
+        # endpoints would return — reuse it and skip get_book_info /
+        # get_book_chapters / get_files / get_toc entirely.
+        meta = None if self.force else _load_meta(self.output_dir, book_id)
+        if meta:
+            info = meta["info"]
+            chapters = meta["chapters"]
+            work_dir = meta["_work_dir"]
+            self.log(
+                f"Found saved download: {info['title']} — no listing calls needed."
+            )
+        else:
+            self.log("Retrieving book info...")
+            info = api.get_book_info()
+            self.log("Retrieving chapter list...")
+            chapters = api.get_book_chapters()
+            title_dir = escape_dirname(info["title"].split(",")[0]) + f" ({book_id})"
+            work_dir = os.path.join(self.output_dir, title_dir)
         self.log("  Title: {}".format(info["title"]))
         if info["authors"]:
             self.log("  Authors: {}".format(", ".join(info["authors"])))
         self.log(f"  ID: {book_id}")
-
-        self.log("Retrieving chapter list...")
-        chapters = api.get_book_chapters()
         self.log(f"  {len(chapters)} chapters")
 
-        title_dir = escape_dirname(info["title"].split(",")[0]) + f" ({book_id})"
-        work_dir = os.path.join(self.output_dir, title_dir)
         if self.force and os.path.isdir(work_dir):
             shutil.rmtree(work_dir)
         builder = EpubBuilder(info, book_id, work_dir)
         tx = Transformer(
             book_id, info["web_url"], kindle=self.kindle, lang=info["language"]
         )
+        if meta:
+            # The stylesheet registry was saved so missing StyleNN.css files
+            # can be re-fetched by URL; restore it before the missing check.
+            tx.css = list(meta.get("css", []))
+            tx.cover = meta.get("cover") or None
 
         # Same-basename chapters would clobber each other when written flat.
         seen_names = set()
@@ -198,22 +282,26 @@ class Downloader:
                 )
             seen_names.add(ch["filename"])
 
-        images = []  # full download URLs
-        fonts = []
         asset_failures = 0
-
-        # Collect asset URLs for every chapter (cheap, no network).
-        for ch in chapters:
-            for img_url in ch["images"]:
-                if img_url.startswith("http"):
-                    images.append(img_url)
-                else:
-                    images.append(urljoin(api.files_url + "/", img_url))
-            for font_url in ch.get("fonts", []):
-                if font_url.startswith("http"):
-                    fonts.append(font_url)
-                else:
-                    fonts.append(urljoin(api.files_url + "/", font_url))
+        if meta:
+            # Post-merge lists (chapter assets ∪ files/ endpoint) were saved.
+            images = list(meta.get("images", []))
+            fonts = list(meta.get("fonts", []))
+        else:
+            images = []  # full download URLs
+            fonts = []
+            # Collect asset URLs for every chapter (cheap, no network).
+            for ch in chapters:
+                for img_url in ch["images"]:
+                    if img_url.startswith("http"):
+                        images.append(img_url)
+                    else:
+                        images.append(urljoin(api.files_url + "/", img_url))
+                for font_url in ch.get("fonts", []):
+                    if font_url.startswith("http"):
+                        fonts.append(font_url)
+                    else:
+                        fonts.append(urljoin(api.files_url + "/", font_url))
 
         # Fetch raw HTML in parallel for chapters whose output is missing.
         # Transform stays sequential: Transformer is stateful (CSS registry,
@@ -297,23 +385,27 @@ class Downloader:
                 tx.render_page(page_css, xhtml, title="Cover"),
             )
             chapters = [
-                {"filename": "default_cover.xhtml", "title": "Cover"}
+                {"filename": "default_cover.xhtml", "title": "Cover", "content": ""}
             ] + chapters
 
         # related_assets can miss package files (fonts, extra images);
-        # the files/ endpoint is the canonical list — merge both.
-        try:
-            for f in api.get_files():
-                ext = f.get("filename_ext", "").lstrip(".")
-                media_type = f.get("media_type", "")
-                if (
-                    f.get("kind") == "image" or media_type.startswith("image/")
-                ) and f.get("url"):
-                    images.append(f["url"])
-                elif (ext in FONT_EXTENSIONS or "font" in media_type) and f.get("url"):
-                    fonts.append(f["url"])
-        except (ApiError, AuthError) as exc:
-            self.log(f"  warning: could not list package files: {exc}")
+        # the files/ endpoint is the canonical list — merge both. With saved
+        # meta the merged lists were persisted, so the call is unnecessary.
+        if not meta:
+            try:
+                for f in api.get_files():
+                    ext = f.get("filename_ext", "").lstrip(".")
+                    media_type = f.get("media_type", "")
+                    if (
+                        f.get("kind") == "image" or media_type.startswith("image/")
+                    ) and f.get("url"):
+                        images.append(f["url"])
+                    elif (ext in FONT_EXTENSIONS or "font" in media_type) and f.get(
+                        "url"
+                    ):
+                        fonts.append(f["url"])
+            except (ApiError, AuthError) as exc:
+                self.log(f"  warning: could not list package files: {exc}")
 
         # Warn on basename collisions — chapter markup maps assets by basename,
         # so two distinct files named the same would clobber each other.
@@ -427,7 +519,23 @@ class Downloader:
             )
 
         self.log("Building EPUB...")
-        toc = api.get_toc()
+        toc = meta["toc"] if meta else api.get_toc()
+        # Persist everything the listing calls provided: the next run can
+        # rebuild entirely offline (see offline_ready / _load_meta).
+        _save_meta(
+            work_dir,
+            {
+                "book_id": book_id,
+                "complete": asset_failures == 0,
+                "info": info,
+                "chapters": chapters,
+                "toc": toc,
+                "css": tx.css,
+                "images": images,
+                "fonts": fonts,
+                "cover": tx.cover or "",
+            },
+        )
         epub_path = os.path.join(
             self.output_dir, "{}.epub".format(escape_dirname(info["title"]))
         )

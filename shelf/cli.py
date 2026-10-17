@@ -19,7 +19,7 @@ from rich.prompt import Prompt
 
 from . import constants as C
 from .api import ApiError
-from .downloader import Downloader, extract_book_id
+from .downloader import Downloader, extract_book_id, offline_ready
 from .session import AuthError, OreillySession
 
 DEFAULT_SESSION = os.path.join(user_config_dir("shelf"), "cookies.json")
@@ -286,17 +286,29 @@ def main(argv=None):
     if session_path == os.path.expanduser(DEFAULT_SESSION):
         _migrate_session(session_path)
     sess = OreillySession(session_path)
-    try:
-        ensure_auth(sess, args, printer)
-    except (AuthError, OSError) as exc:
-        printer.error(f"Authentication failed: {exc}")
-        return 1
 
-    if not args.no_save:
-        session_dir = os.path.dirname(os.path.expanduser(args.session))
-        if session_dir:
-            os.makedirs(session_dir, exist_ok=True)
-        sess.save_cookies()
+    # A complete local copy needs no authentication at all — nothing will be
+    # fetched. Explicit auth flags still force a session check.
+    auth_requested = (
+        args.login or args.cred or args.import_cookies or args.browser is not None
+    )
+    if not args.force and not auth_requested and offline_ready(args.output, book_id):
+        printer.log(
+            "Book fully downloaded — rebuilding offline."
+            " (use --force to refresh from the API)"
+        )
+    else:
+        try:
+            ensure_auth(sess, args, printer)
+        except (AuthError, OSError) as exc:
+            printer.error(f"Authentication failed: {exc}")
+            return 1
+
+        if not args.no_save:
+            session_dir = os.path.dirname(os.path.expanduser(args.session))
+            if session_dir:
+                os.makedirs(session_dir, exist_ok=True)
+            sess.save_cookies()
 
     try:
         Downloader(

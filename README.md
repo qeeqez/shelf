@@ -112,12 +112,15 @@ Books/<Book Title> (<id>)/
   OEBPS/                               # unpacked EPUB content
   web/                                 # the static site, with --web
   .cache/                              # raw chapter HTML (offline re-transforms)
+  meta.json                            # download manifest — enables offline rebuilds
 ```
 
 Re-running after an interruption resumes where it left off — pass `--force`
 to wipe the working directory and download fresh. Raw chapter HTML stays in
 `.cache/`, so iterating on `transform.py` or the web output doesn't hit the
-API again.
+API again. A completed download also saves `meta.json` (chapter list, TOC,
+asset URLs) — once everything's on disk, re-runs skip authentication and the
+API entirely; `--force` refreshes from scratch.
 
 ## Development
 
