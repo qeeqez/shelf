@@ -1,15 +1,16 @@
-"""Harvest oreilly.com cookies from local browsers on macOS.
+"""Harvest oreilly.com cookies from local browsers.
 
 Chromium-family browsers encrypt cookie values with AES-128-CBC using a key
 derived (PBKDF2-SHA1, salt 'saltysalt', 1003 iterations) from a password in
-the login keychain ('<Browser> Safe Storage'). Firefox stores them plaintext
-in a sqlite db. Safari is not supported (its cookie container requires Full
-Disk Access); paste cookies manually instead.
+the login keychain ('<Browser> Safe Storage') — macOS only. Firefox stores
+them plaintext in a sqlite db (any platform). Safari is not supported (its
+cookie container requires Full Disk Access); paste cookies manually instead.
 """
 
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -32,6 +33,16 @@ CHROMIUM_BROWSERS = {
 }
 
 CHROME_EPOCH_OFFSET = 11644473600  # seconds between 1601-01-01 and 1970-01-01
+
+MACOS = sys.platform == "darwin"
+
+
+def _firefox_profiles_dir():
+    if MACOS:
+        return APP_SUPPORT / "Firefox/Profiles"
+    if sys.platform == "win32":
+        return Path.home() / "AppData/Roaming/Mozilla/Firefox/Profiles"
+    return Path.home() / ".mozilla/firefox"
 
 
 class CookieError(Exception):
@@ -160,12 +171,17 @@ def load_cookies(browser=None):
     Raises CookieError when nothing usable is found.
     """
     if browser == "firefox":
-        cookies = _header_safe(_firefox_cookies(APP_SUPPORT / "Firefox/Profiles"))
+        cookies = _header_safe(_firefox_cookies(_firefox_profiles_dir()))
         if cookies:
             return "firefox", cookies
         raise CookieError("No O'Reilly cookies found in firefox.")
 
     if browser in CHROMIUM_BROWSERS:
+        if not MACOS:
+            raise CookieError(
+                f"Reading {browser} cookies requires macOS Keychain access. "
+                "Use firefox, --import-cookies, or --login instead."
+            )
         profile_dir, service = CHROMIUM_BROWSERS[browser]
         profile_dir = APP_SUPPORT / profile_dir
         cookies = (
@@ -184,18 +200,19 @@ def load_cookies(browser=None):
             )
         )
 
-    for name, (profile_dir, service) in CHROMIUM_BROWSERS.items():
-        profile_dir = APP_SUPPORT / profile_dir
-        if not profile_dir.is_dir():
-            continue
-        try:
-            cookies = _header_safe(_chromium_cookies(profile_dir, service))
-        except CookieError:
-            continue
-        if cookies:
-            return name, cookies
+    if MACOS:
+        for name, (profile_dir, service) in CHROMIUM_BROWSERS.items():
+            profile_dir = APP_SUPPORT / profile_dir
+            if not profile_dir.is_dir():
+                continue
+            try:
+                cookies = _header_safe(_chromium_cookies(profile_dir, service))
+            except CookieError:
+                continue
+            if cookies:
+                return name, cookies
 
-    cookies = _header_safe(_firefox_cookies(APP_SUPPORT / "Firefox/Profiles"))
+    cookies = _header_safe(_firefox_cookies(_firefox_profiles_dir()))
     if cookies:
         return "firefox", cookies
 

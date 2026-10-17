@@ -22,12 +22,19 @@ produces a complete **EPUB 3** — plus optional **PDF** and a self-contained
 
 ## Install
 
-Requires [uv](https://docs.astral.sh/uv/) and macOS. Python 3.15 is pinned
-via `.python-version`.
+Requires Python 3.12+. [uv](https://docs.astral.sh/uv/) is the recommended
+setup (Python 3.15 is pinned via `.python-version`), but plain pip works too:
 
 ```bash
 uv sync
+# or
+pip install .
 ```
+
+Runs on macOS, Linux, and Windows — one exception: `--browser` cookie
+harvesting for Chromium-family browsers is macOS-only (it decrypts via the
+login keychain). Firefox cookie reading, `--import-cookies`, and `--login`
+work everywhere.
 
 ## Usage
 
@@ -38,15 +45,16 @@ uv run shelf 9781098125974
 ```
 
 On first run it asks how you want to sign in. A verified session is saved to
-`~/Library/Application Support/shelf/cookies.json` (written `0600`)
-and reused on later runs, auto re-authing when it expires.
+the platform config dir (e.g. `~/Library/Application Support/shelf/cookies.json`
+on macOS, written `0600`) and reused on later runs, auto re-authing when it
+expires.
 
 ### Authentication options
 
 | Flag | How it works |
 |------|--------------|
 | *(none)* | Interactive menu on first run |
-| `--browser [name]` | Reads `learning.oreilly.com` cookies straight from an installed browser (chrome, firefox, edge, arc, brave, vivaldi, chromium, opera). Handles SSO/2FA for free — just log in normally first. Chromium reads trigger a one-time Keychain access prompt; Safari isn't supported (paste cookies instead). |
+| `--browser [name]` | Reads `learning.oreilly.com` cookies straight from an installed browser (chrome, firefox, edge, arc, brave, vivaldi, chromium, opera). Handles SSO/2FA for free — just log in normally first. Chromium-family reads are macOS-only and trigger a one-time Keychain access prompt; Firefox works on macOS/Linux/Windows; Safari isn't supported (paste cookies instead). |
 | `--import-cookies FILE` | Imports cookies you exported: JSON dict or a raw `document.cookie` string. |
 | `--login` / `--cred EMAIL:PASS` | Programmatic password login. May fail if O'Reilly demands ReCaptcha or your account uses SSO. |
 
@@ -66,10 +74,10 @@ and save the output to a file, then `--import-cookies cookies.json`.
   `Books/<Book Title> (<id>)/web/index.html`
 - `--pdf` — also produce `<Book Title>.pdf` next to the EPUB
   (via [WeasyPrint](https://weasyprint.org); requires system Pango —
-  `brew install pango` on macOS)
+  `brew install pango` / `apt install libpango-1.0-0`)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
-  (`brew install epubcheck`)
+  (`brew install epubcheck`, or the epubcheck jar from your distro)
 - `--force` — delete the working directory and re-download everything
 - `--jobs N` — parallel downloads (default 4); a global request-rate cap
   still applies, so higher `N` won't hammer the API
