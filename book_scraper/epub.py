@@ -82,6 +82,16 @@ IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
+FONT_MEDIA_TYPES = {
+    "ttf": "font/ttf",
+    "otf": "font/otf",
+    "woff": "font/woff",
+    "woff2": "font/woff2",
+    "ttc": "font/ttf",
+    "otc": "font/otf",
+    "sfnt": "application/font-sfnt",
+}
+
 
 def _item_id(filename):
     return escape("".join(filename.split(".")[:-1]))
@@ -104,10 +114,12 @@ class EpubBuilder:
         self.oebps = os.path.join(work_dir, "OEBPS")
         self.images_path = os.path.join(self.oebps, "Images")
         self.css_path = os.path.join(self.oebps, "Styles")
+        self.fonts_path = os.path.join(self.oebps, "Fonts")
         for d in (
             self.oebps,
             self.images_path,
             self.css_path,
+            self.fonts_path,
             os.path.join(work_dir, "META-INF"),
         ):
             os.makedirs(d, exist_ok=True)
@@ -125,7 +137,14 @@ class EpubBuilder:
             f.write(rendered_html.encode("utf-8", "xmlcharrefreplace"))
 
     def write_css(self, index, content):
-        with open(os.path.join(self.css_path, f"Style{index:0>2}.css"), "wb") as f:
+        self.write_named_css(f"Style{index:0>2}.css", content)
+
+    def write_named_css(self, name, content):
+        with open(os.path.join(self.css_path, name), "wb") as f:
+            f.write(content if isinstance(content, bytes) else content.encode())
+
+    def write_font(self, name, content):
+        with open(os.path.join(self.fonts_path, name), "wb") as f:
             f.write(content)
 
     def write_image(self, name, content):
@@ -152,6 +171,14 @@ class EpubBuilder:
                     name,
                     _image_media_type(name),
                     props,
+                )
+            )
+        for name in sorted(set(os.listdir(self.fonts_path))):
+            ext = name.rsplit(".", 1)[-1].lower()
+            media_type = FONT_MEDIA_TYPES.get(ext, f"font/{ext}")
+            manifest.append(
+                '<item id="font_{}" href="Fonts/{}" media-type="{}"/>'.format(
+                    escape("".join(name.split(".")[:-1])), name, media_type
                 )
             )
         for i, name in enumerate(sorted(os.listdir(self.css_path))):

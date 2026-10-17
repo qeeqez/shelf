@@ -24,6 +24,10 @@ BASE_CSS = (
     "pre,code,kbd,samp{white-space:pre-wrap;word-wrap:break-word;"
     "word-break:break-word;}"
     "table{max-width:100%;}"
+    "td,th{vertical-align:top;}"
+    "figure,table{page-break-inside:avoid;}"
+    "figure{margin:1em auto;text-align:center;}"
+    "figcaption{margin:0.5em;font-size:0.9em;}"
     "h1,h2,h3,h4,h5,h6{page-break-after:avoid;}"
 )
 
@@ -192,6 +196,7 @@ class Transformer:
             '<meta charset="utf-8"/>\n'
             f"<title>{escape(title)}</title>\n"
             f"{page_css}"
-            f'<style type="text/css">{self.base_css}</style>'
+            '<link href="Styles/BookScraper.css" rel="stylesheet"'
+            ' type="text/css"/>'
         )
         return PAGE_HEAD + head + PAGE_MID + xhtml + PAGE_TAIL

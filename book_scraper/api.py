@@ -95,6 +95,7 @@ class OreillyAPI:
             "content": c.get("content_url", ""),
             "asset_base_url": self.files_url,
             "images": assets.get("images", []),
+            "fonts": assets.get("fonts", []),
             "stylesheets": [{"url": u} for u in assets.get("stylesheets", [])],
             "site_styles": [],
         }

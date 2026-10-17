@@ -41,6 +41,31 @@ def escape_dirname(dirname):
     return " ".join(dirname.split())
 
 
+def _basename(url):
+    return url.split("/")[-1].split("?")[0].split("#")[0]
+
+
+CSS_URL_RE = re.compile(r"url\((['\"]?)([^)'\"]+)(['\"]?)\)")
+
+
+def rewrite_css_urls(content, image_names, font_names):
+    """Point relative url() refs in book CSS at our Images/Fonts dirs."""
+    text = content.decode("utf-8", "replace") if isinstance(content, bytes) else content
+
+    def repl(m):
+        url = m.group(2).strip()
+        if url.startswith(("data:", "http:", "https:", "//")):
+            return m.group(0)
+        base = _basename(url)
+        if base in image_names:
+            return f"url({m.group(1)}../Images/{base}{m.group(3)})"
+        if base in font_names:
+            return f"url({m.group(1)}../Fonts/{base}{m.group(3)})"
+        return m.group(0)
+
+    return CSS_URL_RE.sub(repl, text).encode("utf-8")
+
+
 class BookScraper:
     def __init__(
         self, oreilly_session, output_dir, kindle=False, log=print, progress=None
@@ -71,19 +96,26 @@ class BookScraper:
         tx = Transformer(book_id, info["web_url"], kindle=self.kindle)
 
         images = []  # full download URLs
+        fonts = []
         self.log("Downloading chapters...")
         total = len(chapters)
         for i, ch in enumerate(chapters):
             self.progress(i + 1, total, ch["title"])
             out_name = ch["filename"].replace(".html", ".xhtml")
-            if builder.has_chapter(out_name):
-                continue
 
             for img_url in ch["images"]:
                 if img_url.startswith("http"):
                     images.append(img_url)
                 else:
                     images.append(urljoin(api.files_url + "/", img_url))
+            for font_url in ch.get("fonts", []):
+                if font_url.startswith("http"):
+                    fonts.append(font_url)
+                else:
+                    fonts.append(urljoin(api.files_url + "/", font_url))
+
+            if builder.has_chapter(out_name):
+                continue
 
             chapter_css = [s["url"] for s in ch["stylesheets"]] + ch["site_styles"]
             root = api.get_chapter_root(ch)
@@ -110,12 +142,16 @@ class BookScraper:
                 {"filename": "default_cover.xhtml", "title": "Cover"}
             ] + chapters
 
+        builder.write_named_css("BookScraper.css", tx.base_css)
+
+        image_names = {_basename(u) for u in images}
+        font_names = {_basename(u) for u in fonts}
         self.log(f"Downloading stylesheets ({len(tx.css)})...")
         for i, css_url in enumerate(tx.css):
             self.progress(i + 1, len(tx.css), "css")
             try:
                 content, _ = api.get_binary(css_url)
-                builder.write_css(i, content)
+                builder.write_css(i, rewrite_css_urls(content, image_names, font_names))
             except (ApiError, OSError) as exc:
                 self.log(f"  warning: CSS {css_url} failed: {exc}")
 
@@ -123,12 +159,20 @@ class BookScraper:
         self.log(f"Downloading images ({len(images)})...")
         for i, url in enumerate(images):
             self.progress(i + 1, len(images), "images")
-            name = url.split("/")[-1].split("?")[0]
             try:
                 content, _ = api.get_binary(url)
-                builder.write_image(name, content)
+                builder.write_image(_basename(url), content)
             except (ApiError, OSError) as exc:
                 self.log(f"  warning: image {url} failed: {exc}")
+
+        fonts = list(dict.fromkeys(fonts))
+        for i, url in enumerate(fonts):
+            self.progress(i + 1, len(fonts), "fonts")
+            try:
+                content, _ = api.get_binary(url)
+                builder.write_font(_basename(url), content)
+            except (ApiError, OSError) as exc:
+                self.log(f"  warning: font {url} failed: {exc}")
 
         self.log("Building EPUB...")
         toc = api.get_toc()
