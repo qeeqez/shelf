@@ -13,8 +13,12 @@ dependencies = [
     "cryptography>=50.0.2",
     "rich>=15.0.0",
     "platformdirs>=4.13.3",
-    "weasyprint>=70.0",
 ]
+
+# --pdf prefers WeasyPrint (CSS paged media); it also needs system Pango.
+# Without it, shelf falls back to a headless Chromium browser.
+[project.optional-dependencies]
+pdf = ["weasyprint>=70.0"]
 
 [dependency-groups]
 dev = [

@@ -17,7 +17,7 @@ produces a complete **EPUB 3** — plus optional **PDF** and a self-contained
   authors/subjects/publisher pulled from the book's own `content.opf`, NCX +
   nav TOC, landmarks, and schema.org accessibility metadata — `epubcheck`
   clean.
-- Optionally emits a PDF (WeasyPrint) and a static web version
+- Optionally emits a PDF (WeasyPrint or headless Chromium) and a static web version
   (`--web`) styled after the Google SRE book site.
 
 ## Install
@@ -72,9 +72,12 @@ and save the output to a file, then `--import-cookies cookies.json`.
 - `-o DIR` — output directory (default `./Books`)
 - `--web` — also produce a browsable static site at
   `Books/<Book Title> (<id>)/web/index.html`
-- `--pdf` — also produce `<Book Title>.pdf` next to the EPUB
-  (via [WeasyPrint](https://weasyprint.org); requires system Pango —
-  `brew install pango` / `apt install libpango-1.0-0`)
+- `--pdf` — also produce `<Book Title>.pdf` next to the EPUB.
+  Best output via [WeasyPrint](https://weasyprint.org) (page numbers,
+  running headers — CSS paged media): `pip install shelf[pdf]` plus
+  system Pango (`brew install pango` / `apt install libpango-1.0-0`).
+  Without it, shelf falls back to a headless Chrome/Chromium/Edge/Brave
+  browser — no extra install if you already have one (no page numbers).
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
   (`brew install epubcheck` — requires Java — or the epubcheck jar from your

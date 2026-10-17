@@ -14,7 +14,7 @@ from lxml import html
 from . import constants as C
 from .api import FONT_EXTENSIONS, ApiError, OreillyAPI
 from .epub import EpubBuilder
-from .pdf import build_pdf
+from .pdf import PdfError, build_pdf
 from .session import AuthError
 from .transform import Transformer
 from .web import build_web
@@ -589,8 +589,12 @@ class Downloader:
         if self.pdf:
             self.log("Building PDF...")
             pdf_path = epub_path[:-5] + ".pdf"
-            build_pdf(builder.oebps, chapters, info["title"], pdf_path)
-            self.log(f"Done: {pdf_path}")
+            try:
+                build_pdf(builder.oebps, chapters, info["title"], pdf_path)
+            except PdfError as exc:
+                self.log(f"  PDF skipped: {exc}")
+            else:
+                self.log(f"Done: {pdf_path}")
 
         if self.web:
             self.log("Building web version...")
