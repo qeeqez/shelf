@@ -19,8 +19,8 @@ SITE_CSS = """\
 :root[data-theme="dark"]{color-scheme:dark;--fg:#e8eaed;--muted:#9aa0a6;--line:#3c4043;
 --accent:#8ab4f8;--bg:#17181a;--chrome:#1e1f21;
 --hover:#303134;--sel:#26292e;--active:#374a6b;--input:#2d2f31;
---input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;--card-bg:#fdfdfd;
---card-fg:#202124;--card-pad:16px 28px;--card-r:8px;
+--input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;
+--card-fg:#202124;
 --elev:0 8px 28px rgba(0,0,0,.6);--ring:0 0 0 2px #374a6b;
 --hero-shadow:0 2px 16px rgba(0,0,0,.5)}
 @media (prefers-color-scheme:dark){
@@ -28,7 +28,7 @@ SITE_CSS = """\
 --line:#3c4043;--accent:#8ab4f8;--bg:#17181a;
 --chrome:#1e1f21;--hover:#303134;--sel:#26292e;--active:#374a6b;
 --input:#2d2f31;--input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;
---card-bg:#fdfdfd;--card-fg:#202124;--card-pad:16px 28px;--card-r:8px;
+--card-fg:#202124;
 --elev:0 8px 28px rgba(0,0,0,.6);--ring:0 0 0 2px #374a6b;
 --hero-shadow:0 2px 16px rgba(0,0,0,.5)}
 }
