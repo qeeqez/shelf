@@ -205,6 +205,11 @@ def build_parser():
         help="Extra CSS rules to avoid table/pre overflow on e-readers",
     )
     p.add_argument(
+        "--pdf",
+        action="store_true",
+        help="Also produce a PDF next to the EPUB (requires system Pango)",
+    )
+    p.add_argument(
         "-o",
         "--output",
         metavar="DIR",
@@ -247,6 +252,7 @@ def main(argv=None):
             sess,
             args.output,
             kindle=args.kindle,
+            pdf=args.pdf,
             log=printer.log,
             progress=printer.progress,
         ).run(book_id)

@@ -9,6 +9,7 @@ from lxml import html
 from . import constants as C
 from .api import ApiError, OreillyAPI
 from .epub import EpubBuilder
+from .pdf import build_pdf
 from .transform import Transformer
 
 
@@ -68,11 +69,18 @@ def rewrite_css_urls(content, image_names, font_names):
 
 class BookScraper:
     def __init__(
-        self, oreilly_session, output_dir, kindle=False, log=print, progress=None
+        self,
+        oreilly_session,
+        output_dir,
+        kindle=False,
+        pdf=False,
+        log=print,
+        progress=None,
     ):
         self.http = oreilly_session
         self.output_dir = output_dir
         self.kindle = kindle
+        self.pdf = pdf
         self.log = log
         self.progress = progress or (lambda done, total, label="": None)
 
@@ -181,4 +189,10 @@ class BookScraper:
         )
         builder.finalize(chapters, toc, tx.cover, epub_path)
         self.log(f"Done: {epub_path}")
+
+        if self.pdf:
+            self.log("Building PDF...")
+            pdf_path = epub_path[:-5] + ".pdf"
+            build_pdf(builder.oebps, chapters, info["title"], pdf_path)
+            self.log(f"Done: {pdf_path}")
         return epub_path

@@ -13,6 +13,7 @@ dependencies = [
     "cryptography>=50.0.2",
     "rich>=15.0.0",
     "platformdirs>=4.13.3",
+    "weasyprint>=70.0",
 ]
 
 [dependency-groups]

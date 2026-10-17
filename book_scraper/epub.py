@@ -156,7 +156,7 @@ class EpubBuilder:
     def _content_opf(self, chapters, cover_src, first_chapter):
         manifest = [
             '<item id="{}" href="{}" media-type="application/xhtml+xml"/>'.format(
-                _item_id(c["filename"]), c["filename"]
+                _item_id(c["filename"]), _epub_href(c["filename"])
             )
             for c in chapters
         ]
@@ -215,7 +215,7 @@ class EpubBuilder:
             cover_id,
             "\n".join(manifest),
             "\n".join(spine),
-            first_chapter,
+            _epub_href(first_chapter),
             modified,
         )
 
@@ -269,13 +269,14 @@ class EpubBuilder:
         landmarks = []
         if chapters:
             landmarks.append(
-                f'<li><a epub:type="cover" href="{chapters[0]["filename"]}">'
-                "Cover</a></li>"
+                f'<li><a epub:type="cover" '
+                f'href="{_epub_href(chapters[0]["filename"])}">Cover</a></li>'
             )
             if len(chapters) > 1:
                 landmarks.append(
                     f'<li><a epub:type="bodymatter" '
-                    f'href="{chapters[1]["filename"]}">Start of Content</a></li>'
+                    f'href="{_epub_href(chapters[1]["filename"])}">'
+                    "Start of Content</a></li>"
                 )
         return NAV_XHTML.format(
             escape(self.book_info["title"]),

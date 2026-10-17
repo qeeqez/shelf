@@ -50,13 +50,17 @@ and save the output to a file, then `--import-cookies cookies.json`.
 ### Other flags
 
 - `-o DIR` — output directory (default `./Books`)
+- `--pdf` — also produce `<Book Title>.pdf` next to the EPUB
+  (via [WeasyPrint](https://weasyprint.org); requires system Pango —
+  `brew install pango` on macOS)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session
 
 ## Output
 
-`Books/<Book Title>.epub` plus a `Books/<Book Title> (<id>)/` working
+`Books/<Book Title>.epub` (and `.pdf` with `--pdf`) plus a
+`Books/<Book Title> (<id>)/` working
 directory with the unpacked content. Re-running after an interruption resumes
 where it left off — delete the working directory to force a clean download.
 
