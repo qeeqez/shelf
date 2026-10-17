@@ -1061,14 +1061,17 @@ try{if(localStorage.getItem("shelf-imginv")==="0")document.documentElement.datas
 <div class="settings">
 <button id="settings-btn" aria-label="Display settings" aria-expanded="false"
  aria-haspopup="true" aria-controls="settings-panel"
- title="Display settings"><svg width="18" height="18" viewBox="0 0 16 16"
- fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+ title="Display settings"><svg width="18" height="18" viewBox="0 0 24 24"
+ fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
  stroke-linejoin="round" aria-hidden="true"><path
- d="M8 10.2a2.2 2.2 0 100-4.4 2.2 2.2 0 000 4.4z"/><path
- d="M13.2 8.8l1.2-.9-.9-1.6-1.4.5a5.3 5.3 0 00-.8-.5L11 4.8H9l-.3 1.5a5.3 5.3
- 0 00-.8.5l-1.4-.5-.9 1.6 1.2.9a5.4 5.4 0 000 .9l-1.2.9.9 1.6 1.4-.5a5.3 5.3
- 0 00.8.5L9 11.7h2l.3-1.5a5.3 5.3 0 00.8-.5l1.4.5.9-1.6-1.2-.9a5.4 5.4 0
- 000-.9z"/></svg></button>
+ d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2
+ 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0
+ 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0
+ 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0
+ 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0
+ 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0
+ 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0
+ 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
 <div id="settings-panel" class="settings-panel" hidden>
 <button id="theme-btn" aria-label="Theme: system"
  title="Theme: system"><span class="tglyph">&#9680;</span>
