@@ -73,11 +73,20 @@ border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
 header.top button:hover{background:var(--hover)}
-#menu-btn,#theme-btn,#wide-btn,#imginv-btn{width:36px;height:36px;
+#menu-btn,#settings-btn{width:36px;height:36px;
 padding:0;display:flex;align-items:center;justify-content:center;
 line-height:1}
-#wide-btn[aria-pressed="true"],
-#imginv-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
+.settings{position:relative}
+.settings-panel{position:absolute;right:0;top:calc(100% + 4px);z-index:30;
+background:var(--chrome);border:1px solid var(--line);border-radius:10px;
+box-shadow:var(--elev);padding:5px;min-width:210px;
+animation:dropin .15s ease}
+.settings-panel button{display:flex;align-items:center;gap:10px;
+width:100%;padding:8px 10px;font-size:13.5px;border-radius:7px;
+color:var(--fg);background:none;border:0;cursor:pointer;text-align:left}
+.settings-panel button:hover{background:var(--hover)}
+.settings-panel button[aria-pressed="true"]{color:var(--accent)}
+.settings-panel .tglyph,.settings-panel svg{flex:none;display:flex}
 .progress{position:absolute;left:0;bottom:-1px;height:2px;width:0;
 background:var(--accent);pointer-events:none}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
@@ -442,6 +451,27 @@ SITE_JS = """\
   );
   onPageScroll();
 
+  // -- display settings popover -------------------------------------------
+  var setBtn = document.getElementById("settings-btn");
+  var setPanel = document.getElementById("settings-panel");
+  function setOpen(open) {
+    if (!setPanel) return;
+    setPanel.hidden = !open;
+    setBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  if (setBtn && setPanel) {
+    setBtn.addEventListener("click", function () {
+      setOpen(setPanel.hidden);
+    });
+    document.addEventListener("click", function (e) {
+      var outside =
+        !setPanel.contains(e.target) &&
+        e.target !== setBtn &&
+        !setBtn.contains(e.target);
+      if (!setPanel.hidden && outside) setOpen(false);
+    });
+  }
+
   // -- theme (system / light / dark) --------------------------------------
   var themeKey = "shelf-theme";
   var themeBtn = document.getElementById("theme-btn");
@@ -470,7 +500,10 @@ SITE_JS = """\
     if (!GLYPHS[t]) t = "system"; // unknown stored value → fall back
     document.documentElement.dataset.theme = t;
     if (themeBtn) {
-      themeBtn.innerHTML = GLYPHS[t];
+      // innerHTML on the button would wipe the .lbl span — swap the
+      // glyph and label separately.
+      themeBtn.querySelector(".tglyph").innerHTML = GLYPHS[t];
+      themeBtn.querySelector(".lbl").textContent = "Theme: " + t;
       themeBtn.title = "Theme: " + t;
       themeBtn.setAttribute("aria-label", "Theme: " + t);
     }
@@ -657,6 +690,7 @@ SITE_JS = """\
     ["t", "Cycle theme (system → light → dark)"],
     ["w", "Toggle full-width content"],
     ["i", "Invert images in dark mode"],
+    ["s", "Display settings"],
     ["Esc", "Close panels and sidebar"],
     ["?", "This help"],
   ];
@@ -699,6 +733,10 @@ SITE_JS = """\
         hideTip();
         return;
       }
+      if (setPanel && !setPanel.hidden) {
+        setOpen(false);
+        return;
+      }
       if (!isHidden()) setSidebar(false);
       return;
     }
@@ -724,6 +762,10 @@ SITE_JS = """\
     }
     if (e.key === "i" && imgBtn) {
       imgBtn.click();
+      return;
+    }
+    if (e.key === "s" && setBtn && setPanel) {
+      setOpen(setPanel.hidden);
       return;
     }
     var sel =
@@ -1016,21 +1058,37 @@ try{if(localStorage.getItem("shelf-imginv")==="0")document.documentElement.datas
  autocomplete="off" spellcheck="false" aria-label="Search this book"/>
 <div id="search-results" class="search-results" role="listbox" hidden></div>
 </div>
+<div class="settings">
+<button id="settings-btn" aria-label="Display settings" aria-expanded="false"
+ aria-haspopup="true" aria-controls="settings-panel"
+ title="Display settings"><svg width="18" height="18" viewBox="0 0 16 16"
+ fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+ stroke-linejoin="round" aria-hidden="true"><path
+ d="M8 10.2a2.2 2.2 0 100-4.4 2.2 2.2 0 000 4.4z"/><path
+ d="M13.2 8.8l1.2-.9-.9-1.6-1.4.5a5.3 5.3 0 00-.8-.5L11 4.8H9l-.3 1.5a5.3 5.3
+ 0 00-.8.5l-1.4-.5-.9 1.6 1.2.9a5.4 5.4 0 000 .9l-1.2.9.9 1.6 1.4-.5a5.3 5.3
+ 0 00.8.5L9 11.7h2l.3-1.5a5.3 5.3 0 00.8-.5l1.4.5.9-1.6-1.2-.9a5.4 5.4 0
+ 000-.9z"/></svg></button>
+<div id="settings-panel" class="settings-panel" hidden>
+<button id="theme-btn" aria-label="Theme: system"
+ title="Theme: system"><span class="tglyph">&#9680;</span>
+ <span class="lbl">Theme: system</span></button>
 <button id="wide-btn" aria-label="Toggle full-width content"
  aria-pressed="false" title="Toggle full-width content"><svg width="18"
  height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor"
  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
  aria-hidden="true"><path d="M1.5 8h13M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12
- 10.5"/></svg></button>
+ 10.5"/></svg><span class="lbl">Full width</span></button>
 <button id="imginv-btn" aria-label="Toggle image inversion in dark mode"
  aria-pressed="true" title="Invert images in dark mode"><svg width="18"
  height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor"
  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
  aria-hidden="true"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/>
  <circle cx="5.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
- <path d="M2.5 11.5 6 8l2.5 2.5L11 8l2.5 2.5" fill="none"/></svg></button>
-<button id="theme-btn" aria-label="Theme: system"
- title="Theme: system">&#9680;</button>
+ <path d="M2.5 11.5 6 8l2.5 2.5L11 8l2.5 2.5" fill="none"/></svg>
+ <span class="lbl">Invert images</span></button>
+</div>
+</div>
 <a class="toc-link" href="{root}toc.html">Contents</a>
 </header>
 <div class="scrim" id="scrim"></div>
