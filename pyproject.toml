@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "book-scraper"
+version = "0.1.0"
+description = "Download O'Reilly books you have access to as EPUB files"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "lxml>=6.1.3",
+    "cryptography>=50.0.2",
+    "rich>=15.0.0",
+    "platformdirs>=4.13.3",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.17.1"]
+
+[project.scripts]
+book-scraper = "book_scraper.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["book_scraper*"]
