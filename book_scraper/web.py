@@ -97,10 +97,15 @@ SITE_JS = """\
     document.body.classList.add("sidebar-hidden");
   }
   var btn = document.getElementById("menu-btn");
-  if (btn) btn.addEventListener("click", function () {
+  if (btn) {
+    btn.setAttribute("aria-expanded",
+      document.body.classList.contains("sidebar-hidden") ? "false" : "true");
+    btn.addEventListener("click", function () {
     var hidden = document.body.classList.toggle("sidebar-hidden");
+    btn.setAttribute("aria-expanded", hidden ? "false" : "true");
     try { localStorage.setItem(key, hidden ? "hidden" : "open"); } catch (e) {}
-  });
+    });
+  }
   document.addEventListener("keydown", function (e) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     var sel = e.key === "ArrowLeft" ? ".pager a.prev"
@@ -109,6 +114,8 @@ SITE_JS = """\
     var a = document.querySelector(sel);
     if (a) location.href = a.href;
   });
+  var act = document.querySelector("nav.sidebar a.active");
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
 })();
 """
 
@@ -119,11 +126,12 @@ PAGE = """\
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{page_title}</title>
-{book_links}<link rel="stylesheet" href="assets/site.css"/>
+{book_links}<link rel="stylesheet" href="assets/site.css"/>{extra_head}
 </head>
 <body>
 <header class="top">
-<button id="menu-btn" aria-label="Toggle table of contents">&#9776;</button>
+<button id="menu-btn" aria-label="Toggle table of contents"
+ aria-controls="sidebar" aria-expanded="true">&#9776;</button>
 <span class="booktitle"><a href="index.html">{book_title}</a></span>
 <span class="spacer"></span>
 <a class="toc-link" href="toc.html">Contents</a>
@@ -161,25 +169,39 @@ def _rewrite_links(body):
 
 
 def _chapter_body(path):
-    body = html.parse(path).getroot().find("body")
+    doc = html.parse(path).getroot()
+    body = doc.find("body")
     if body is None:
-        return ""
+        return "", ""
     _rewrite_links(body)
-    return (body.text or "") + "".join(
+    styles = "".join(html.tostring(s, encoding="unicode") for s in doc.iter("style"))
+    body_html = (body.text or "") + "".join(
         html.tostring(el, encoding="unicode") for el in body
     )
+    return styles, body_html
 
 
-def _sidebar_ul(items, current_stem):
+def _first_stem_match(items, stem):
+    if stem is None:
+        return None
+    for item in items:
+        if _stem(item["href"]) == stem:
+            return item
+        hit = _first_stem_match(item["children"], stem)
+        if hit is not None:
+            return hit
+    return None
+
+
+def _sidebar_ul(items, active_item):
     lis = []
     for item in items:
-        stem = _stem(item["href"])
         href = _page_name(item["href"])
         if item["fragment"]:
             href += "#" + item["fragment"]
-        cls = ' class="active"' if stem == current_stem else ""
+        cls = ' class="active" aria-current="page"' if item is active_item else ""
         children = (
-            _sidebar_ul(item["children"], current_stem) if item["children"] else ""
+            _sidebar_ul(item["children"], active_item) if item["children"] else ""
         )
         lis.append(
             f'<li><a href="{escape(href)}"{cls}>{escape(item["label"])}</a>'
@@ -233,13 +255,19 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
 
     title = info.get("title", "Book")
 
-    def render(page_title, sidebar_current, body, pager="", into="index.html"):
+    def render(
+        page_title, sidebar_current, body, pager="", into="index.html", extra_head=""
+    ):
         page = PAGE.replace("{page_title}", escape(page_title))
         page = page.replace("{book_title}", escape(title))
         page = page.replace("{book_links}", book_links)
-        page = page.replace("{sidebar}", _sidebar_ul(toc_items, sidebar_current))
+        page = page.replace(
+            "{sidebar}",
+            _sidebar_ul(toc_items, _first_stem_match(toc_items, sidebar_current)),
+        )
         page = page.replace("{pager}", pager)
         page = page.replace("{body}", body)
+        page = page.replace("{extra_head}", extra_head)
         with open(os.path.join(web_dir, into), "w") as f:
             f.write(page)
 
@@ -249,12 +277,14 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
         if not os.path.isfile(path):
             continue
+        styles, body = _chapter_body(path)
         render(
             f"{ch['title']} — {title}",
             _stem(ch["filename"]),
-            _chapter_body(path),
+            body,
             pager=_pager(flat, i),
             into=_page_name(ch["filename"]),
+            extra_head=styles,
         )
 
     # Full TOC page
