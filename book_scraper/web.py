@@ -253,6 +253,39 @@ SITE_JS = """\
       if (narrow()) setSidebar(false);
     });
   });
+
+  // -- sidebar scroll position ---------------------------------------------
+  // Keep the TOC where the reader left it across page switches. Fresh tabs
+  // (no saved position) reveal the active chapter instead.
+  var scrollKey = "bs-sidebar-scroll";
+  var sb = document.querySelector("nav.sidebar");
+  if (sb) {
+    var saved = null;
+    try {
+      saved = sessionStorage.getItem(scrollKey);
+    } catch (e) {}
+    if (saved !== null) {
+      sb.scrollTop = parseInt(saved, 10) || 0;
+    } else {
+      var activeLink = sb.querySelector("a.active");
+      if (activeLink) activeLink.scrollIntoView({ block: "center" });
+    }
+    var sbTick = false;
+    sb.addEventListener(
+      "scroll",
+      function () {
+        if (sbTick) return;
+        sbTick = true;
+        requestAnimationFrame(function () {
+          sbTick = false;
+          try {
+            sessionStorage.setItem(scrollKey, String(sb.scrollTop));
+          } catch (e) {}
+        });
+      },
+      { passive: true }
+    );
+  }
   // -- theme (system / light / dark) --------------------------------------
   var themeKey = "bs-theme";
   var themeBtn = document.getElementById("theme-btn");
