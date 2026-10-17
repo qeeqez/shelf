@@ -73,9 +73,11 @@ border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
 header.top button:hover{background:var(--hover)}
-#menu-btn,#theme-btn,#wide-btn{width:36px;height:36px;padding:0;
-display:flex;align-items:center;justify-content:center;line-height:1}
-#wide-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
+#menu-btn,#theme-btn,#wide-btn,#imginv-btn{width:36px;height:36px;
+padding:0;display:flex;align-items:center;justify-content:center;
+line-height:1}
+#wide-btn[aria-pressed="true"],
+#imginv-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
 .progress{position:absolute;left:0;bottom:-1px;height:2px;width:0;
 background:var(--accent);pointer-events:none}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
@@ -241,10 +243,21 @@ header.top .booktitle{display:none}
 }
 /* Content goes dark via invert+hue-rotate: lightness flips, hues survive
    (book CSS colors like #C30/#069 stay readable). Images invert too —
-   diagrams become white-on-dark instead of white rectangles. */
+   diagrams become white-on-dark instead of white rectangles — unless the
+   reader opts out: data-imginv="off" re-inverts media back to original. */
 :root[data-theme="dark"] .content{filter:invert(1) hue-rotate(180deg)}
 @media (prefers-color-scheme:dark){
 :root:not([data-theme="light"]) .content{filter:invert(1) hue-rotate(180deg)}
+}
+:root[data-theme="dark"][data-imginv="off"] .content img,
+:root[data-theme="dark"][data-imginv="off"] .content svg,
+:root[data-theme="dark"][data-imginv="off"] .content video{
+filter:invert(1) hue-rotate(180deg)}
+@media (prefers-color-scheme:dark){
+:root:not([data-theme="light"])[data-imginv="off"] .content img,
+:root:not([data-theme="light"])[data-imginv="off"] .content svg,
+:root:not([data-theme="light"])[data-imginv="off"] .content video{
+filter:invert(1) hue-rotate(180deg)}
 }
 @media print{
 header.top,nav.sidebar,.pager,.skip,.anchor,.copy-btn,.note-tip,
@@ -501,6 +514,30 @@ SITE_JS = """\
     });
     syncWide();
   }
+
+  // -- image inversion in dark mode ----------------------------------------
+  // Whole-content inversion also flips images; some readers prefer real
+  // colors for photos. data-imginv="off" re-inverts media back via CSS.
+  var imgBtn = document.getElementById("imginv-btn");
+  if (imgBtn) {
+    var syncImgInv = function () {
+      var on = document.documentElement.dataset.imginv !== "off";
+      imgBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      imgBtn.title = on
+        ? "Dark mode: images inverted (click for original colors)"
+        : "Dark mode: images original (click to invert)";
+    };
+    imgBtn.addEventListener("click", function () {
+      var off = document.documentElement.dataset.imginv === "off";
+      if (off) delete document.documentElement.dataset.imginv;
+      else document.documentElement.dataset.imginv = "off";
+      try {
+        localStorage.setItem("shelf-imginv", off ? "1" : "0");
+      } catch (e) {}
+      syncImgInv();
+    });
+    syncImgInv();
+  }
   // -- footnote previews -----------------------------------------------------
   // O'Reilly chapters carry dense noteref→footnote pairs (a chapter can
   // have 100+). Hovering or focusing a ref pops the note in place — no
@@ -619,6 +656,7 @@ SITE_JS = """\
     ["k / ←", "Previous chapter"],
     ["t", "Cycle theme (system → light → dark)"],
     ["w", "Toggle full-width content"],
+    ["i", "Invert images in dark mode"],
     ["Esc", "Close panels and sidebar"],
     ["?", "This help"],
   ];
@@ -682,6 +720,10 @@ SITE_JS = """\
     }
     if (e.key === "w" && wideBtn) {
       wideBtn.click();
+      return;
+    }
+    if (e.key === "i" && imgBtn) {
+      imgBtn.click();
       return;
     }
     var sel =
@@ -950,7 +992,8 @@ PAGE = """\
 <meta charset="utf-8"/>
 <script>(function(){var t="system";try{t=localStorage.getItem("shelf-theme")||"system"}catch(e){}
 document.documentElement.dataset.theme=t;
-try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset.wide="1"}catch(e){}})()</script>
+try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset.wide="1"}catch(e){}
+try{if(localStorage.getItem("shelf-imginv")==="0")document.documentElement.dataset.imginv="off"}catch(e){}})()</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
@@ -979,6 +1022,13 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
  aria-hidden="true"><path d="M1.5 8h13M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12
  10.5"/></svg></button>
+<button id="imginv-btn" aria-label="Toggle image inversion in dark mode"
+ aria-pressed="true" title="Invert images in dark mode"><svg width="18"
+ height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+ stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+ aria-hidden="true"><rect x="1.5" y="3" width="13" height="10" rx="1.5"/>
+ <circle cx="5.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+ <path d="M2.5 11.5 6 8l2.5 2.5L11 8l2.5 2.5" fill="none"/></svg></button>
 <button id="theme-btn" aria-label="Theme: system"
  title="Theme: system">&#9680;</button>
 <a class="toc-link" href="{root}toc.html">Contents</a>

@@ -374,6 +374,16 @@ class TestSiteAssets:
         assert 'help.id = "keys-help"' in SITE_JS
         assert ".keys{" in SITE_CSS
 
+    def test_image_inversion_toggle(self):
+        """Dark mode inverts the whole content; the opt-out re-inverts
+        media back. Needs the CSS double-inversion rule, the persisted
+        pref and the early-script hook."""
+        assert 'data-imginv="off"' in SITE_CSS
+        assert ".content img," in SITE_CSS
+        assert '"shelf-imginv"' in SITE_JS
+        assert '"imginv-btn"' in SITE_JS
+        assert 'e.key === "i"' in SITE_JS
+
     def test_print_hides_added_chrome(self):
         """New floating UI must not leak into the print layout."""
         print_css = SITE_CSS.split("@media print")[1]
