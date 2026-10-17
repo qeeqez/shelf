@@ -48,7 +48,7 @@ body,header.top,.search-results,.pager{
 transition:background-color .25s ease,border-color .25s ease}
 nav.sidebar li a{position:relative;
 transition:background-color .15s ease,color .15s ease}
-nav.sidebar li a.spy{color:var(--accent);font-weight:600}
+nav.sidebar li a.spy{color:var(--accent)}
 nav.sidebar li a.spy::before{content:"";position:absolute;left:10px;
 top:22%;bottom:22%;width:3px;border-radius:2px;background:var(--accent);
 animation:spyin .18s ease}
@@ -114,8 +114,7 @@ nav.sidebar ul{list-style:none;margin:0;padding:0}
 nav.sidebar li a{display:block;padding:6px 24px;color:var(--fg);font-size:14px;
 line-height:1.4}
 nav.sidebar li a:hover{background:var(--hover);text-decoration:none}
-nav.sidebar li a.active{color:var(--accent);background:var(--active);
-font-weight:600}
+nav.sidebar li a.active{color:var(--accent);background:var(--active)}
 nav.sidebar ul ul a{padding-left:42px}
 nav.sidebar ul ul ul a{padding-left:60px}
 nav.sidebar ul ul ul ul a{padding-left:78px}
