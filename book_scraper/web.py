@@ -65,8 +65,8 @@ border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
 header.top button:hover{background:var(--hover)}
-#theme-btn,#wide-btn{width:36px;height:36px;padding:0;display:flex;
-align-items:center;justify-content:center;line-height:1}
+#menu-btn,#theme-btn,#wide-btn{width:36px;height:36px;padding:0;
+display:flex;align-items:center;justify-content:center;line-height:1}
 #wide-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
@@ -258,11 +258,29 @@ SITE_JS = """\
   var themeBtn = document.getElementById("theme-btn");
   var mq =
     window.matchMedia && window.matchMedia("(prefers-color-scheme:dark)");
-  var GLYPHS = { system: "◐", light: "☀", dark: "☾" };
+  var SVG_OPEN =
+    '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+    'stroke-linejoin="round" aria-hidden="true">';
+  var GLYPHS = {
+    system:
+      SVG_OPEN +
+      '<circle cx="8" cy="8" r="5.5"/>' +
+      '<path d="M8 2.5A5.5 5.5 0 008 13.5z" fill="currentColor" ' +
+      'stroke="none"/></svg>',
+    light:
+      SVG_OPEN +
+      '<circle cx="8" cy="8" r="3"/>' +
+      '<path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1' +
+      'M11.6 11.6l1 1M12.6 3.4l-1 1M4.4 11.6l-1 1"/></svg>',
+    dark:
+      SVG_OPEN +
+      '<path d="M13.5 9.5A6 6 0 116.5 2.5a4.8 4.8 0 007 7z"/></svg>',
+  };
   function applyTheme(t) {
     document.documentElement.dataset.theme = t;
     if (themeBtn) {
-      themeBtn.textContent = GLYPHS[t];
+      themeBtn.innerHTML = GLYPHS[t];
       themeBtn.title = "Theme: " + t;
       themeBtn.setAttribute("aria-label", "Theme: " + t);
     }
@@ -549,7 +567,10 @@ try{if(localStorage.getItem("bs-wide")==="1")document.documentElement.dataset.wi
 <a class="skip" href="#content">Skip to content</a>
 <header class="top">
 <button id="menu-btn" aria-label="Toggle table of contents"
- aria-controls="sidebar" aria-expanded="true">&#9776;</button>
+ aria-controls="sidebar" aria-expanded="true"><svg width="18" height="18"
+ viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
+ stroke-linecap="round" aria-hidden="true"><path
+ d="M2 4h12M2 8h12M2 12h12"/></svg></button>
 <span class="booktitle"><a href="index.html">{book_title}</a></span>
 <span class="spacer"></span>
 <div class="search">
