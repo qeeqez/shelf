@@ -48,6 +48,52 @@ def _basename(url):
     return url.split("/")[-1].split("?")[0].split("#")[0]
 
 
+def _norm(s):
+    return re.sub(r"\s+", "", s).lower()
+
+
+def _font_faces(fonts_dir, css_text):
+    """Generate @font-face rules for downloaded fonts. Aliases both the real
+    family names inside each font (name IDs 1, 4, 1+2) and family names the
+    book CSS requests that fuzzy-match a font (e.g. "Ubuntu Mono Ital" or
+    "DejaVuSans")."""
+    requested = set()
+    for decl in re.findall(r"font-family:[^;}]+", css_text):
+        requested.update(re.findall(r'"([^"]+)"|\'([^\']+)\'', decl))
+    requested = {n for pair in requested for n in pair if n}
+    rules = []
+    for name in sorted(os.listdir(fonts_dir)):
+        path = os.path.join(fonts_dir, name)
+        try:
+            from fontTools.ttLib import TTFont, TTLibError
+
+            tt = TTFont(path, fontNumber=0)
+            name_table = tt["name"]
+            family = name_table.getDebugName(1) or os.path.splitext(name)[0]
+            subfam = name_table.getDebugName(2) or ""
+            full = name_table.getDebugName(4)
+            os2 = tt["OS/2"]
+            weight = 700 if os2.usWeightClass >= 600 else 400
+            style = "italic" if os2.fsSelection & 0x01 else "normal"
+        except (ImportError, TTLibError, KeyError, OSError):
+            family, subfam, full = os.path.splitext(name)[0], "", None
+            weight, style = 400, "normal"
+        families = {f for f in (family, full, f"{family} {subfam}".strip()) if f}
+        known = {_norm(f) for f in families}
+        for q in requested:
+            nq = _norm(q)
+            if q not in families and (
+                nq in known or any(k.startswith(nq) for k in known)
+            ):
+                families.add(q)
+        for fam in families:
+            rules.append(
+                f'@font-face{{font-family:"{fam}";src:url("../Fonts/{name}");'
+                f"font-weight:{weight};font-style:{style}}}"
+            )
+    return "".join(rules)
+
+
 CSS_URL_RE = re.compile(r"url\((['\"]?)([^)'\"]+)(['\"]?)\)")
 
 
@@ -166,8 +212,6 @@ class BookScraper:
                 {"filename": "default_cover.xhtml", "title": "Cover"}
             ] + chapters
 
-        builder.write_named_css("BookScraper.css", tx.base_css)
-
         # related_assets can miss package files (fonts, extra images);
         # the files/ endpoint is the canonical list — merge both.
         try:
@@ -182,6 +226,16 @@ class BookScraper:
                     fonts.append(f["url"])
         except (ApiError, AuthError) as exc:
             self.log(f"  warning: could not list package files: {exc}")
+
+        # Warn on basename collisions — chapter markup maps assets by basename,
+        # so two distinct files named the same would clobber each other.
+        for urls in (images, fonts):
+            seen = {}
+            for u in urls:
+                b = _basename(u)
+                if b in seen and seen[b] != u:
+                    self.log(f"  warning: asset name collision: {u} vs {seen[b]}")
+                seen[b] = u
 
         image_names = {_basename(u) for u in images}
         font_names = {_basename(u) for u in fonts}
@@ -219,6 +273,21 @@ class BookScraper:
                 builder.write_font(_basename(url), content)
             except (ApiError, OSError) as exc:
                 self.log(f"  warning: font {url} failed: {exc}")
+
+        # Wire downloaded fonts into the shared stylesheet — book CSS often
+        # names embedded fonts (e.g. "Ubuntu Mono") without @font-face.
+        css_text = tx.base_css
+        for css_name in os.listdir(builder.css_path):
+            with open(
+                os.path.join(builder.css_path, css_name),
+                encoding="utf-8",
+                errors="replace",
+            ) as f:
+                css_text += f.read()
+        builder.write_named_css(
+            "BookScraper.css",
+            tx.base_css + _font_faces(builder.fonts_path, css_text),
+        )
 
         self.log("Building EPUB...")
         toc = api.get_toc()

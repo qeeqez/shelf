@@ -1,6 +1,7 @@
 """Assemble downloaded chapters/assets into a valid EPUB 3 file."""
 
 import os
+import re
 import zipfile
 from datetime import UTC, datetime
 from xml.sax.saxutils import escape
@@ -20,23 +21,22 @@ CONTAINER_XML = (
 CONTENT_OPF = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid"'
-    ' version="3.0">\n'
+    ' prefix="ibooks: http://vocabulary.itunes.apple.com/rdf/ibooks/'
+    'vocabulary-extensions-1.0/" version="3.0">\n'
     '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"'
     ' xmlns:opf="http://www.idpf.org/2007/opf">\n'
     '<dc:identifier id="bookid">{0}</dc:identifier>\n'
     "<dc:title>{1}</dc:title>\n{2}\n"
     "<dc:language>en-US</dc:language>\n"
-    "<dc:date>{7}</dc:date>\n"
-    "<dc:description>{3}</dc:description>\n{4}"
-    "<dc:publisher>{5}</dc:publisher>\n"
-    "<dc:rights>{6}</dc:rights>\n"
+    "{13}"
     '<meta property="dcterms:modified">{12}</meta>\n'
+    '<meta property="ibooks:specified-fonts">true</meta>\n'
     '<meta name="cover" content="{8}"/>\n'
     "</metadata>\n<manifest>\n"
     '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml"'
     ' properties="nav"/>\n'
     '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n'
-    "{9}\n</manifest>\n<spine>\n{10}</spine>\n"
+    '{9}\n</manifest>\n<spine toc="ncx">\n{10}</spine>\n'
     '<guide><reference href="{11}" title="Cover" type="cover"/></guide>\n'
     "</package>"
 )
@@ -48,7 +48,7 @@ TOC_NCX = (
     ' "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">\n'
     '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'
     "<head>\n"
-    '<meta content="ID:ISBN:{0}" name="dtb:uid"/>\n'
+    '<meta content="{0}" name="dtb:uid"/>\n'
     '<meta content="{1}" name="dtb:depth"/>\n'
     '<meta content="0" name="dtb:totalPageCount"/>\n'
     '<meta content="0" name="dtb:maxPageNumber"/>\n'
@@ -154,12 +154,31 @@ class EpubBuilder:
     # -- metadata writers --------------------------------------------------------
 
     def _content_opf(self, chapters, cover_src, first_chapter):
-        manifest = [
-            '<item id="{}" href="{}" media-type="application/xhtml+xml"/>'.format(
-                _item_id(c["filename"]), _epub_href(c["filename"])
+        manifest = []
+        for c in chapters:
+            props = []
+            path = self.chapter_path(_epub_href(c["filename"]))
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    data = f.read()
+                if "<math" in data:
+                    props.append("mathml")
+                if "<svg" in data:
+                    props.append("svg")
+                if re.search(
+                    r'(?:src|data|poster|xlink:href)\s*=\s*"https?://'
+                    r"|url\(\s*[\"']?https?://",
+                    data,
+                ):
+                    props.append("remote-resources")
+            except OSError:
+                pass
+            props_attr = ' properties="' + " ".join(props) + '"' if props else ""
+            manifest.append(
+                '<item id="{}" href="{}" media-type="application/xhtml+xml"{}/>'.format(
+                    _item_id(c["filename"]), _epub_href(c["filename"]), props_attr
+                )
             )
-            for c in chapters
-        ]
         spine = [f'<itemref idref="{_item_id(c["filename"])}"/>' for c in chapters]
 
         cover_name = os.path.basename(cover_src) if cover_src else ""
@@ -186,12 +205,22 @@ class EpubBuilder:
                 f'<item id="style_{i:0>2}" href="Styles/{name}" media-type="text/css"/>'
             )
 
-        authors = "\n".join(
-            '<dc:creator opf:file-as="{0}" opf:role="aut">{0}</dc:creator>'.format(
-                escape(a)
+        author_elems = []
+        for i, a in enumerate(self.book_info.get("authors", [])):
+            cid = f"creator{i + 1:02d}"
+            author_elems.append(f'<dc:creator id="{cid}">{escape(a)}</dc:creator>')
+            author_elems.append(
+                f'<meta refines="#{cid}" property="role"'
+                ' scheme="marc:relators">aut</meta>'
             )
-            for a in self.book_info.get("authors", [])
-        )
+            parts = a.split()
+            if len(parts) > 1:
+                file_as = f"{parts[-1]}, {' '.join(parts[:-1])}"
+                author_elems.append(
+                    f'<meta refines="#{cid}" property="file-as">'
+                    f"{escape(file_as)}</meta>"
+                )
+        authors = "\n".join(author_elems)
         subjects = "\n".join(
             f"<dc:subject>{escape(s)}</dc:subject>"
             for s in self.book_info.get("subjects", [])
@@ -201,6 +230,24 @@ class EpubBuilder:
             if cover_src
             else ""
         )
+        optional_dc = []
+        if self.book_info.get("issued"):
+            optional_dc.append(f"<dc:date>{escape(self.book_info['issued'])}</dc:date>")
+        if self.book_info.get("description"):
+            optional_dc.append(
+                f"<dc:description>{escape(self.book_info['description'])}</dc:description>"
+            )
+        optional_dc.append(subjects)
+        if self.book_info.get("publishers"):
+            optional_dc.append(
+                "<dc:publisher>{}</dc:publisher>".format(
+                    escape(", ".join(self.book_info["publishers"]))
+                )
+            )
+        if self.book_info.get("rights"):
+            optional_dc.append(
+                f"<dc:rights>{escape(self.book_info['rights'])}</dc:rights>"
+            )
         modified = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         return CONTENT_OPF.format(
@@ -217,26 +264,33 @@ class EpubBuilder:
             "\n".join(spine),
             _epub_href(first_chapter),
             modified,
+            "\n".join(optional_dc) + "\n",
         )
 
-    def _parse_toc_ncx(self, items, counter=0, max_depth=0):
+    def _parse_toc_ncx(self, items, counter=0, max_depth=0, playorders=None):
+        if playorders is None:
+            playorders = {}
         result = ""
         for item in items:
             counter += 1
             max_depth = max(max_depth, int(item["depth"]))
+            src = _epub_href(item["href"])
+            if item["fragment"]:
+                src += "#" + item["fragment"]
+            playorder = playorders.setdefault(src, counter)
             result += (
-                '<navPoint id="{}" playOrder="{}">'
+                '<navPoint id="navpoint-{}" playOrder="{}">'
                 "<navLabel><text>{}</text></navLabel>"
                 '<content src="{}"/>'.format(
-                    item["fragment"] if item["fragment"] else item["id"],
                     counter,
+                    playorder,
                     escape(item["label"]),
-                    _epub_href(item["href"]),
+                    escape(src),
                 )
             )
             if item["children"]:
                 sub, counter, max_depth = self._parse_toc_ncx(
-                    item["children"], counter, max_depth
+                    item["children"], counter, max_depth, playorders
                 )
                 result += sub
             result += "</navPoint>\n"

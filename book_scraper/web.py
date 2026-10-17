@@ -65,6 +65,14 @@ text-align:left;vertical-align:top}
 padding:2px 20px;color:var(--muted)}
 .content figure{margin:28px 0;text-align:center}
 .content figcaption{font-size:14px;color:var(--muted);margin-top:8px}
+.content math[display="block"]{overflow-x:auto;max-width:100%}
+.content dl{margin:0 0 16px}
+.content dd{margin:0 0 6px 2em}
+.content sup,.content sub{font-size:.75em;line-height:0}
+.content .sidebar,aside[data-type="sidebar"]{border:1px solid var(--line);
+border-radius:8px;background:#f8f9fa;padding:16px 20px;margin:24px 0}
+.content h6{font-size:.9em;font-weight:400;font-style:italic;text-align:center;
+color:var(--muted)}
 .pager{display:flex;justify-content:space-between;gap:16px;max-width:740px;
 margin:48px auto 0;border-top:1px solid var(--line);padding-top:20px;
 font-size:15px}
@@ -111,8 +119,8 @@ PAGE = """\
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>{page_title}</title>
-<link rel="stylesheet" href="assets/site.css"/>
-{book_links}</head>
+{book_links}<link rel="stylesheet" href="assets/site.css"/>
+</head>
 <body>
 <header class="top">
 <button id="menu-btn" aria-label="Toggle table of contents">&#9776;</button>
@@ -220,7 +228,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         book_links = "".join(
             f'<link rel="stylesheet" href="Styles/{n}"/>\n'
             for n in sorted(os.listdir(styles_dir))
-            if n.endswith(".css") and n != "BookScraper.css"
+            if n.endswith(".css")
         )
 
     title = info.get("title", "Book")

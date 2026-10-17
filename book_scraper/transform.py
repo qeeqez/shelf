@@ -84,11 +84,18 @@ class Transformer:
         if not link or link.startswith("mailto"):
             return link
         if not _is_absolute(link):
-            if any(
-                x in link for x in ["cover", "images", "graphics"]
-            ) or _is_image_link(link):
-                return "Images/" + link.split("/")[-1]
-            return link.replace(".html", ".xhtml")
+            path, _, frag = link.partition("#")
+            if not path:
+                return link
+            tail = path.rsplit("/", 1)[-1]
+            if not tail:
+                return f"#{frag}" if frag else "#"
+            suffix = f"#{frag}" if frag else ""
+            if _is_image_link(tail):
+                return "Images/" + tail + suffix
+            if tail.lower().endswith((".html", ".xhtml")):
+                return tail.rsplit(".", 1)[0] + ".xhtml" + suffix
+            return link
         if self.book_id in link:
             return self._link_replace(link.split(self.book_id)[-1])
         return link

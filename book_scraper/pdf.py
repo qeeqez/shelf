@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 from lxml import html
 
 PDF_CSS = (
-    "@page{size:A4;margin:20mm 18mm;"
+    "@page{size:A4;margin:20mm 18mm !important;"
     "@bottom-center{content:counter(page);font-size:9pt;color:#666}"
     "@top-center{content:string(chapter);font-size:8pt;color:#999}}"
     "h1,h2{string-set:chapter content()}"
