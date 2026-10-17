@@ -558,7 +558,11 @@ try{if(localStorage.getItem("bs-wide")==="1")document.documentElement.dataset.wi
 <div id="search-results" class="search-results" hidden></div>
 </div>
 <button id="wide-btn" aria-label="Toggle full-width content"
- aria-pressed="false" title="Toggle full-width content">&#8596;</button>
+ aria-pressed="false" title="Toggle full-width content"><svg width="18"
+ height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+ stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+ aria-hidden="true"><path d="M1.5 8h13M4 5.5 1.5 8 4 10.5M12 5.5 14.5 8 12
+ 10.5"/></svg></button>
 <button id="theme-btn" aria-label="Theme: system"
  title="Theme: system">&#9680;</button>
 <a class="toc-link" href="toc.html">Contents</a>
