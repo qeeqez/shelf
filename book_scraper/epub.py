@@ -30,6 +30,10 @@ CONTENT_OPF = (
     "<dc:language>en-US</dc:language>\n"
     "{13}"
     '<meta property="dcterms:modified">{12}</meta>\n'
+    '<meta property="schema:accessMode">textual,visual</meta>\n'
+    '<meta property="schema:accessibilityFeature">alternativeText,'
+    "structuralNavigation,tableOfContents,index{14}</meta>\n"
+    '<meta property="schema:accessibilityHazard">none</meta>\n'
     '<meta property="ibooks:specified-fonts">true</meta>\n'
     '<meta name="cover" content="{8}"/>\n'
     "</metadata>\n<manifest>\n"
@@ -90,6 +94,24 @@ FONT_MEDIA_TYPES = {
     "ttc": "font/ttf",
     "otc": "font/otf",
     "sfnt": "application/font-sfnt",
+}
+
+# epub:type values → landmarks nav entries (reader "Go to" menus)
+LANDMARK_TYPES = {
+    "titlepage": "title-page",
+    "copyright-page": "copyright-page",
+    "dedication": "dedication",
+    "epigraph": "epigraph",
+    "foreword": "foreword",
+    "preface": "preface",
+    "introduction": "introduction",
+    "prologue": "prologue",
+    "glossary": "glossary",
+    "index": "index",
+    "colophon": "colophon",
+    "appendix": "appendix",
+    "bibliography": "bibliography",
+    "acknowledgments": "acknowledgments",
 }
 
 
@@ -155,6 +177,7 @@ class EpubBuilder:
 
     def _content_opf(self, chapters, cover_src, first_chapter):
         manifest = []
+        has_mathml = False
         for c in chapters:
             props = []
             path = self.chapter_path(_epub_href(c["filename"]))
@@ -163,6 +186,7 @@ class EpubBuilder:
                     data = f.read()
                 if "<math" in data:
                     props.append("mathml")
+                    has_mathml = True
                 if "<svg" in data:
                     props.append("svg")
                 if re.search(
@@ -248,7 +272,9 @@ class EpubBuilder:
             optional_dc.append(
                 f"<dc:rights>{escape(self.book_info['rights'])}</dc:rights>"
             )
-        modified = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        modified = self.book_info.get("modified") or datetime.now(UTC).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
         return CONTENT_OPF.format(
             escape(self.book_info.get("isbn") or self.book_id),
@@ -265,6 +291,7 @@ class EpubBuilder:
             _epub_href(first_chapter),
             modified,
             "\n".join(optional_dc) + "\n",
+            ",MathML" if has_mathml else "",
         )
 
     def _parse_toc_ncx(self, items, counter=0, max_depth=0, playorders=None):
@@ -319,6 +346,18 @@ class EpubBuilder:
             )
         return "<ol>\n" + "\n".join(lis) + "\n</ol>"
 
+    def _chapter_epub_type(self, filename):
+        try:
+            with open(
+                self.chapter_path(_epub_href(filename)),
+                encoding="utf-8",
+                errors="replace",
+            ) as f:
+                m = re.search(r'epub:type="([a-z-]+)"', f.read(65536))
+                return m.group(1) if m else ""
+        except OSError:
+            return ""
+
     def _nav_xhtml(self, toc_items, chapters):
         landmarks = []
         if chapters:
@@ -326,6 +365,16 @@ class EpubBuilder:
                 f'<li><a epub:type="cover" '
                 f'href="{_epub_href(chapters[0]["filename"])}">Cover</a></li>'
             )
+            seen_types = set()
+            for ch in chapters:
+                etype = LANDMARK_TYPES.get(self._chapter_epub_type(ch["filename"]))
+                if etype and etype not in seen_types:
+                    seen_types.add(etype)
+                    landmarks.append(
+                        f'<li><a epub:type="{etype}" '
+                        f'href="{_epub_href(ch["filename"])}">'
+                        f"{escape(ch['title'])}</a></li>"
+                    )
             if len(chapters) > 1:
                 landmarks.append(
                     f'<li><a epub:type="bodymatter" '

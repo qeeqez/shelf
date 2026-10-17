@@ -130,14 +130,24 @@ class OreillyAPI:
             values = texts(tag)
             return values[0] if values else ""
 
+        modified = next(
+            (
+                e.text.strip()
+                for e in root.findall(".//opf:meta", OPF_NS)
+                if e.get("property") == "dcterms:modified" and e.text and e.text.strip()
+            ),
+            "",
+        )
+
         return {
             "authors": creators,
+            "modified": modified,
             "publishers": texts("publisher"),
             "subjects": texts("subject"),
             "issued": first("date"),
             "description": first("description"),
             "rights": first("rights"),
-            "isbn": first("identifier").replace("-", ""),
+            "isbn": first("identifier").replace("urn:isbn:", "").replace("-", ""),
             "cover": cover,
         }
 
@@ -165,19 +175,20 @@ class OreillyAPI:
 
         result = {
             "title": data.get("title", ""),
-            "authors": opf["authors"] or authors,
+            "authors": opf.get("authors") or authors,
             "identifier": data.get("identifier", ""),
-            "isbn": opf["isbn"] or data.get("isbn", self.book_id),
-            "publishers": opf["publishers"] or publishers,
-            "rights": opf["rights"] or data.get("rights", ""),
-            "description": description or opf["description"],
-            "issued": data.get("publication_date", "") or opf["issued"],
+            "isbn": opf.get("isbn") or data.get("isbn", self.book_id),
+            "publishers": opf.get("publishers") or publishers,
+            "rights": opf.get("rights") or data.get("rights", ""),
+            "description": description or opf.get("description"),
+            "issued": data.get("publication_date", "") or opf.get("issued"),
+            "modified": opf.get("modified", ""),
             "web_url": C.SAFARI_BASE_URL + f"/library/view/-/{self.book_id}/",
-            "subjects": subjects or opf["subjects"],
+            "subjects": subjects or opf.get("subjects"),
             "cover": data.get("cover")
             or data.get("cover_url")
             or data.get("cover_image")
-            or opf["cover"],
+            or opf.get("cover"),
         }
         return {k: (v if v is not None else "") for k, v in result.items()}
 
@@ -250,7 +261,7 @@ class OreillyAPI:
 
     # -- content & assets ---------------------------------------------------------
 
-    def get_chapter_root(self, chapter):
+    def get_chapter_html(self, chapter):
         url = chapter["content"]
         if not url:
             raise ApiError("Chapter {!r} has no content URL".format(chapter["title"]))
@@ -261,8 +272,13 @@ class OreillyAPI:
                     response.status_code, chapter["title"]
                 )
             )
+        return response.text
+
+    def get_chapter_root(self, chapter):
         try:
-            return html.fromstring(response.text, base_url=C.SAFARI_BASE_URL)
+            return html.fromstring(
+                self.get_chapter_html(chapter), base_url=C.SAFARI_BASE_URL
+            )
         except (html.etree.ParseError, html.etree.ParserError) as exc:
             raise ApiError(
                 "Could not parse chapter {!r}".format(chapter["title"])

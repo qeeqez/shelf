@@ -15,6 +15,9 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 Helvetica,Arial,sans-serif;color:var(--fg);background:#fff;font-size:17px;
 line-height:1.65}
 a{color:var(--accent);text-decoration:none}
+.skip{position:absolute;left:-9999px;top:0;z-index:50}
+.skip:focus{left:8px;top:8px;background:var(--accent);color:#fff;
+padding:8px 14px;border-radius:6px}
 a:hover{text-decoration:underline}
 header.top{position:fixed;top:0;left:0;right:0;height:56px;display:flex;
 align-items:center;padding:0 12px;background:#fff;
@@ -82,7 +85,8 @@ font-size:.9em}
 .content p code,.content li code,.content td code{background:var(--code);
 padding:1px 5px;border-radius:4px}
 .content pre code{background:none;padding:0}
-.content table{border-collapse:collapse;width:100%;font-size:15px;margin:20px 0}
+.content table{border-collapse:collapse;width:100%;font-size:15px;
+margin:20px 0;display:block;overflow-x:auto}
 .content th,.content td{border:1px solid var(--line);padding:8px 12px;
 text-align:left;vertical-align:top}
 .content th{background:#f8f9fa}
@@ -108,8 +112,36 @@ border-radius:4px;box-shadow:0 2px 12px rgba(0,0,0,.12)}
 .index-hero h1{font-size:34px;margin:24px 0 6px}
 .index-hero .authors{color:var(--muted);font-size:16px}
 @media (max-width:960px){
-nav.sidebar{box-shadow:2px 0 14px rgba(0,0,0,.18)}
+nav.sidebar{box-shadow:2px 0 14px rgba(0,0,0,.18);
+transform:translateX(-104%)}
+body.sidebar-open nav.sidebar{transform:none}
 main{margin-left:0}
+}
+@media (prefers-color-scheme:dark){
+:root{--fg:#e8eaed;--muted:#9aa0a6;--line:#3c4043;--code:#2d2f31;
+--accent:#8ab4f8}
+body{background:#17181a}
+header.top{background:#1e1f21}
+nav.sidebar{background:#1e1f21}
+nav.sidebar li a:hover,header.top button:hover,
+header.top a.toc-link:hover{background:#303134}
+nav.sidebar li a.active{background:#374a6b}
+#search-box{background:#2d2f31;border-color:var(--line);color:var(--fg)}
+#search-box:focus{background:#2d2f31;box-shadow:0 0 0 2px #374a6b}
+.search-results{background:#1e1f21}
+.search-results a.result{border-bottom-color:#303134}
+.search-results a.result:hover,.search-results a.result.sel{background:#26292e}
+.search-results .r-snip mark{background:#6b5d00;color:#fff}
+.pager{border-top-color:var(--line)}
+.content{background:#fdfdfd;color:#202124;border-radius:8px;
+padding:16px 28px}
+.content pre{background:#f6f8fa}
+.content p code,.content li code,.content td code{background:#f6f8fa}
+.content th{background:#f8f9fa}
+.content blockquote{color:#5f6368}
+.content figcaption{color:#5f6368}
+.content .sidebar,aside[data-type="sidebar"]{background:#f8f9fa}
+.index-hero img{box-shadow:0 2px 16px rgba(0,0,0,.5)}
 }
 """
 
@@ -118,17 +150,24 @@ SITE_JS = """\
   var key = "bs-sidebar";
   var stored = null;
   try { stored = localStorage.getItem(key); } catch (e) {}
-  if (stored === "hidden" || (stored === null && window.innerWidth < 960)) {
-    document.body.classList.add("sidebar-hidden");
-  }
+  var narrow = function () { return window.innerWidth < 960; };
+  var isHidden = function () {
+    return narrow()
+      ? !document.body.classList.contains("sidebar-open")
+      : document.body.classList.contains("sidebar-hidden");
+  };
+  if (stored === "hidden") document.body.classList.add("sidebar-hidden");
+  if (stored === "open" && narrow()) document.body.classList.add("sidebar-open");
   var btn = document.getElementById("menu-btn");
   if (btn) {
-    btn.setAttribute("aria-expanded",
-      document.body.classList.contains("sidebar-hidden") ? "false" : "true");
+    btn.setAttribute("aria-expanded", isHidden() ? "false" : "true");
     btn.addEventListener("click", function () {
-    var hidden = document.body.classList.toggle("sidebar-hidden");
-    btn.setAttribute("aria-expanded", hidden ? "false" : "true");
-    try { localStorage.setItem(key, hidden ? "hidden" : "open"); } catch (e) {}
+      if (narrow()) document.body.classList.toggle("sidebar-open");
+      else document.body.classList.toggle("sidebar-hidden");
+      btn.setAttribute("aria-expanded", isHidden() ? "false" : "true");
+      try {
+        localStorage.setItem(key, isHidden() ? "hidden" : "open");
+      } catch (e) {}
     });
   }
   document.addEventListener("keydown", function (e) {
@@ -266,10 +305,13 @@ PAGE = """\
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
+<meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
 <title>{page_title}</title>
 {book_links}<link rel="stylesheet" href="assets/site.css"/>{extra_head}
 </head>
 <body>
+<a class="skip" href="#content">Skip to content</a>
 <header class="top">
 <button id="menu-btn" aria-label="Toggle table of contents"
  aria-controls="sidebar" aria-expanded="true">&#9776;</button>
@@ -284,7 +326,7 @@ PAGE = """\
 </header>
 <nav class="sidebar" id="sidebar">{sidebar}</nav>
 <main>
-<div class="content">
+<div class="content" id="content">
 {body}
 </div>
 {pager}
@@ -320,6 +362,9 @@ def _chapter_body(path):
     if body is None:
         return "", ""
     _rewrite_links(body)
+    for img in body.iter("img"):
+        img.set("loading", "lazy")
+        img.set("decoding", "async")
     styles = "".join(html.tostring(s, encoding="unicode") for s in doc.iter("style"))
     body_html = (body.text or "") + "".join(
         html.tostring(el, encoding="unicode") for el in body
@@ -350,8 +395,7 @@ def _search_index(chapters, oebps_dir):
             raw = f.read()
         if b'epub:type="index"' in raw:
             continue  # the index chapter is already an index
-        doc = html.fromstring(raw)
-        body = doc.find("body")
+        body = html.parse(path).getroot().find("body")
         if body is None:
             continue
         page = _page_name(ch["filename"])
@@ -471,13 +515,22 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         if not os.path.isfile(path):
             continue
         styles, body = _chapter_body(path)
+        rel_links = ""
+        if i > 0:
+            rel_links += (
+                f'<link rel="prev" href="{_page_name(flat[i - 1]["filename"])}"/>'
+            )
+        if i + 1 < len(flat):
+            rel_links += (
+                f'<link rel="next" href="{_page_name(flat[i + 1]["filename"])}"/>'
+            )
         render(
             f"{ch['title']} — {title}",
             _stem(ch["filename"]),
             body,
             pager=_pager(flat, i),
             into=_page_name(ch["filename"]),
-            extra_head=styles,
+            extra_head=styles + rel_links,
         )
 
     # Client-side search index
@@ -505,6 +558,26 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         hero += f'<p class="authors">{escape(authors)}</p>'
     first = _page_name(flat[0]["filename"]) if flat else "toc.html"
     hero += f'<p><a href="{first}">Start reading &rarr;</a></p>'
-    render(title, None, f'<div class="index-hero">{hero}</div>', into="index.html")
+    og = (
+        f'<meta property="og:title" content="{escape(title)}"/>'
+        '<meta property="og:type" content="book"/>'
+    )
+    if authors:
+        og += f'<meta name="author" content="{escape(authors)}"/>'
+    if info.get("description"):
+        desc = " ".join(info["description"].split())[:300]
+        og += (
+            f'<meta name="description" content="{escape(desc)}"/>'
+            f'<meta property="og:description" content="{escape(desc)}"/>'
+        )
+    if cover_src:
+        og += f'<meta property="og:image" content="{escape(cover_src)}"/>'
+    render(
+        title,
+        None,
+        f'<div class="index-hero">{hero}</div>',
+        into="index.html",
+        extra_head=og,
+    )
 
     return web_dir
