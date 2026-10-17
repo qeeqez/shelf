@@ -43,7 +43,10 @@ def escape_dirname(dirname):
     if ":" in dirname and dirname.index(":") > 15:
         dirname = dirname.split(":")[0]
     dirname = re.sub(r"[<>:\"/\\|?*]", " ", dirname)
-    return " ".join(dirname.split())
+    dirname = " ".join(dirname.split())
+    while len(dirname.encode("utf-8")) > 180:  # stay under 255-byte fs limits
+        dirname = dirname[:-1]
+    return dirname.rstrip()
 
 
 def _basename(url):
@@ -126,6 +129,7 @@ class BookScraper:
         pdf=False,
         web=False,
         validate=False,
+        force=False,
         log=print,
         progress=None,
     ):
@@ -135,6 +139,7 @@ class BookScraper:
         self.pdf = pdf
         self.web = web
         self.validate = validate
+        self.force = force
         self.log = log
         self.progress = progress or (lambda done, total, label="": None)
 
@@ -154,6 +159,8 @@ class BookScraper:
 
         title_dir = escape_dirname(info["title"].split(",")[0]) + f" ({book_id})"
         work_dir = os.path.join(self.output_dir, title_dir)
+        if self.force and os.path.isdir(work_dir):
+            shutil.rmtree(work_dir)
         builder = EpubBuilder(info, book_id, work_dir)
         tx = Transformer(book_id, info["web_url"], kindle=self.kindle)
 

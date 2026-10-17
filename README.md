@@ -70,6 +70,7 @@ and save the output to a file, then `--import-cookies cookies.json`.
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
   (`brew install epubcheck`)
+- `--force` — delete the working directory and re-download everything
 - `--session FILE` — session store location
 - `--no-save` — don't persist the session
 
@@ -103,8 +104,8 @@ Books/<Book Title> (<id>)/
   .cache/                              # raw chapter HTML (offline re-transforms)
 ```
 
-Re-running after an interruption resumes where it left off — delete the
-working directory to force a clean download. Raw chapter HTML stays in
+Re-running after an interruption resumes where it left off — pass `--force`
+to wipe the working directory and download fresh. Raw chapter HTML stays in
 `.cache/`, so iterating on `transform.py` or the web output doesn't hit the
 API again.
 

@@ -228,6 +228,11 @@ def build_parser():
         help="Validate the EPUB with epubcheck when installed",
     )
     p.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete the working directory and download everything again",
+    )
+    p.add_argument(
         "-o",
         "--output",
         metavar="DIR",
@@ -273,6 +278,7 @@ def main(argv=None):
             pdf=args.pdf,
             web=args.web,
             validate=args.validate,
+            force=args.force,
             log=printer.log,
             progress=printer.progress,
         ).run(book_id)

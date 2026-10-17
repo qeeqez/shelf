@@ -2,6 +2,7 @@
 
 import os
 import re
+import zipfile
 
 from lxml import etree
 
@@ -162,3 +163,31 @@ def test_epub_href():
     assert _epub_href("ch01.html") == "ch01.xhtml"
     assert _epub_href("dir/ch01.html") == "ch01.xhtml"
     assert _epub_href("ch01.xhtml") == "ch01.xhtml"
+
+
+class TestFinalize:
+    def test_zip_excludes_work_dir_junk(self, tmp_path):
+        """.cache/, web/ and dotfiles in work_dir must not ship in the EPUB."""
+        b = make_builder(tmp_path)
+        for junk in (
+            os.path.join(b.work_dir, ".cache", "ch01.html"),
+            os.path.join(b.work_dir, "web", "ch01.html"),
+            os.path.join(b.work_dir, ".DS_Store"),
+            os.path.join(b.oebps, "Images", ".DS_Store"),
+        ):
+            os.makedirs(os.path.dirname(junk), exist_ok=True)
+            with open(junk, "w") as f:
+                f.write("x")
+        b.write_chapter(
+            "ch01.xhtml",
+            '<?xml version="1.0"?><html'
+            ' xmlns="http://www.w3.org/1999/xhtml"><body/></html>',
+        )
+        epub = str(tmp_path / "book.epub")
+        b.finalize([{"filename": "ch01.xhtml", "title": "C1"}], toc_items(), "", epub)
+        names = zipfile.ZipFile(epub).namelist()
+        assert "mimetype" in names
+        assert names[0] == "mimetype"
+        assert all(
+            n == "mimetype" or n.startswith(("META-INF/", "OEBPS/")) for n in names
+        ), names

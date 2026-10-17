@@ -594,7 +594,8 @@ try{if(localStorage.getItem("bs-wide")==="1")document.documentElement.dataset.wi
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
 <title>{page_title}</title>
-{book_links}<link rel="stylesheet" href="assets/site.css"/>{extra_head}
+{book_links}<link rel="stylesheet" href="assets/site.css"/>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml"/>{extra_head}
 </head>
 <body>
 <a class="skip" href="#content">Skip to content</a>
@@ -781,6 +782,11 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         f.write(SITE_CSS)
     with open(os.path.join(assets, "site.js"), "w") as f:
         f.write(SITE_JS)
+    icon_src = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "assets", "icon.svg"
+    )
+    if os.path.isfile(icon_src):
+        shutil.copy(icon_src, os.path.join(assets, "icon.svg"))
 
     styles_dir = os.path.join(web_dir, "Styles")
     book_links = ""
