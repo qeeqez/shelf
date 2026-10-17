@@ -70,7 +70,10 @@ class OreillySession:
             self._last_request = time.time()
             if response.status_code in retryable and attempt < retries - 1:
                 retry_after = response.headers.get("retry-after")
-                delay = float(retry_after) if retry_after else 2**attempt + 1.0
+                try:
+                    delay = float(retry_after) if retry_after else 2**attempt + 1.0
+                except ValueError:  # HTTP-date form — fall back to backoff
+                    delay = 2**attempt + 1.0
                 time.sleep(delay)
                 continue
             break
@@ -104,8 +107,11 @@ class OreillySession:
         cookies = {}
         for c in self.client.cookies.jar:
             cookies[c.name] = c.value  # dedupe names repeated across domains
-        with open(self.cookies_file, "w") as f:
+        # Session cookies are credentials — owner-only file.
+        fd = os.open(self.cookies_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(cookies, f, indent=2)
+        os.chmod(self.cookies_file, 0o600)  # tighten pre-existing files too
 
     def import_cookies(self, cookies):
         """cookies: dict, or a 'name=value; name2=value2' header string."""

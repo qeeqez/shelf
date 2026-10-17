@@ -47,8 +47,16 @@ class Printer:
 
     def progress(self, done, total, label=""):
         if done <= 1 or self._task_id is None:
+            if self._task_id is not None:
+                self._progress.remove_task(self._task_id)
             self._task_id = self._progress.add_task(label[:50], total=total)
         self._progress.update(self._task_id, completed=done, description=label[:50])
+
+    def close(self):
+        if self._task_id is not None:
+            self._progress.remove_task(self._task_id)
+            self._task_id = None
+        self._progress.stop()
 
 
 def parse_cookie_text(text):
@@ -274,6 +282,8 @@ def main(argv=None):
     except KeyboardInterrupt:
         printer.log("\nInterrupted — re-run to resume (downloaded chapters are kept).")
         return 130
+    finally:
+        printer.close()
     return 0
 
 

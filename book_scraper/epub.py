@@ -418,11 +418,15 @@ class EpubBuilder:
                 "application/epub+zip",
                 compress_type=zipfile.ZIP_STORED,
             )
-            for root, _, files in os.walk(self.work_dir):
-                for name in sorted(files):
-                    full = os.path.join(root, name)
-                    arc = os.path.relpath(full, self.work_dir)
-                    if arc == "mimetype":
-                        continue
-                    z.write(full, arc, compress_type=zipfile.ZIP_DEFLATED)
+            # Only META-INF + OEBPS belong in the package; work_dir also holds
+            # .cache/, web/ and OS junk (.DS_Store) that must not be zipped.
+            for base in (os.path.join(self.work_dir, "META-INF"), self.oebps):
+                for root, dirs, files in os.walk(base):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
+                    for name in sorted(files):
+                        if name.startswith("."):
+                            continue
+                        full = os.path.join(root, name)
+                        arc = os.path.relpath(full, self.work_dir)
+                        z.write(full, arc, compress_type=zipfile.ZIP_DEFLATED)
         return epub_path
