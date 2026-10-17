@@ -887,7 +887,8 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     render(
         f"Table of Contents — {title}",
         None,
-        f"<h1>Table of Contents</h1>{_sidebar_ul(toc_items, None)}",
+        "<h1>Table of Contents</h1>"
+        f'<nav aria-label="Table of contents">{_sidebar_ul(toc_items, None)}</nav>',
         into="toc.html",
     )
 

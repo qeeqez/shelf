@@ -32,7 +32,7 @@ CONTENT_OPF = (
     '<meta property="dcterms:modified">{12}</meta>\n'
     '<meta property="schema:accessMode">textual,visual</meta>\n'
     '<meta property="schema:accessibilityFeature">alternativeText,'
-    "structuralNavigation,tableOfContents,index{14}</meta>\n"
+    "structuralNavigation,tableOfContents{14}</meta>\n"
     '<meta property="schema:accessibilityHazard">none</meta>\n'
     '<meta property="ibooks:specified-fonts">true</meta>\n'
     '<meta name="cover" content="{8}"/>\n'
@@ -41,7 +41,8 @@ CONTENT_OPF = (
     ' properties="nav"/>\n'
     '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n'
     '{9}\n</manifest>\n<spine toc="ncx">\n{10}</spine>\n'
-    '<guide><reference href="{11}" title="Cover" type="cover"/></guide>\n'
+    '<guide><reference href="nav.xhtml" title="Table of Contents" type="toc"/>'
+    '<reference href="{11}" title="Cover" type="cover"/></guide>\n'
     "</package>"
 )
 
@@ -93,11 +94,12 @@ FONT_MEDIA_TYPES = {
     "woff2": "font/woff2",
     "ttc": "font/ttf",
     "otc": "font/otf",
-    "sfnt": "application/font-sfnt",
+    "sfnt": "font/sfnt",
 }
 
 # epub:type values → landmarks nav entries (reader "Go to" menus)
 LANDMARK_TYPES = {
+    "cover": "cover",
     "titlepage": "title-page",
     "copyright-page": "copyright-page",
     "dedication": "dedication",
@@ -200,8 +202,11 @@ class EpubBuilder:
     def _content_opf(self, chapters, cover_src, first_chapter):
         manifest = []
         has_mathml = False
+        has_index = False
         for c in chapters:
             name = _epub_href(c["filename"])
+            if self._chapter_epub_type(c["filename"]) == "index":
+                has_index = True
             props = self.chapter_props.get(name)
             if props is None:
                 props = []
@@ -289,12 +294,15 @@ class EpubBuilder:
             optional_dc.append(
                 f"<dc:rights>{escape(self.book_info['rights'])}</dc:rights>"
             )
+        ident, refine = self._identifier()
+        if refine:
+            optional_dc.insert(0, refine)
         modified = self.book_info.get("modified") or datetime.now(UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
 
         return CONTENT_OPF.format(
-            escape(self.book_info.get("isbn") or self.book_id),
+            escape(ident),
             escape(self.book_info["title"]),
             authors,
             escape(self.book_info.get("description", "")),
@@ -308,7 +316,7 @@ class EpubBuilder:
             _epub_href(first_chapter),
             modified,
             "\n".join(optional_dc) + "\n",
-            ",MathML" if has_mathml else "",
+            (",MathML" if has_mathml else "") + (",index" if has_index else ""),
             escape(self.book_info.get("language") or "en-US"),
         )
 
@@ -353,10 +361,27 @@ class EpubBuilder:
             result += "</navPoint>\n"
         return result, counter, max_depth
 
+    def _identifier(self):
+        """(identifier string, refinement <meta> or ""). urn:isbn + ONIX
+        identifier-type so library tools recognise it; NCX dtb:uid must equal
+        dc:identifier, so both writers go through here."""
+        isbn = self.book_info.get("isbn")
+        digits = re.sub(r"[^0-9Xx]", "", isbn) if isbn else ""
+        if len(digits) in (10, 13):
+            code = "15" if len(digits) == 13 else "02"
+            return (
+                f"urn:isbn:{isbn}",
+                (
+                    '<meta refines="#bookid" property="identifier-type"'
+                    f' scheme="onix:codelist5">{code}</meta>'
+                ),
+            )
+        return self.book_info.get("identifier") or f"urn:orm:book:{self.book_id}", ""
+
     def _toc_ncx(self, toc_items):
         navmap, _, max_depth = self._parse_toc_ncx(toc_items)
         return TOC_NCX.format(
-            escape(self.book_info.get("isbn") or self.book_id),
+            escape(self._identifier()[0]),
             max_depth,
             escape(self.book_info["title"]),
             escape(", ".join(self.book_info.get("authors", []))),
@@ -397,11 +422,19 @@ class EpubBuilder:
     def _nav_xhtml(self, toc_items, chapters):
         landmarks = []
         if chapters:
-            landmarks.append(
-                f'<li><a epub:type="cover" '
-                f'href="{_epub_href(chapters[0]["filename"])}">Cover</a></li>'
+            first = chapters[0]
+            etype0 = self._chapter_epub_type(first["filename"])
+            looks_cover = (
+                etype0 == "cover"
+                or "cover" in (first["filename"] + (first.get("title") or "")).lower()
             )
             seen_types = set()
+            if looks_cover:
+                seen_types.add("cover")
+                landmarks.append(
+                    f'<li><a epub:type="cover" '
+                    f'href="{_epub_href(first["filename"])}">Cover</a></li>'
+                )
             for ch in chapters:
                 etype = LANDMARK_TYPES.get(self._chapter_epub_type(ch["filename"]))
                 if etype and etype not in seen_types:

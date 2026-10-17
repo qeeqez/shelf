@@ -195,7 +195,7 @@ class Transformer:
             if cover_img is not None:
                 self.cover = cover_img.attrib["src"]
                 page_css = f"<style>{COVER_CSS}</style>"
-                cover_html = html.fromstring('<div id="Cover"></div>')
+                cover_html = html.fromstring('<div id="Cover" epub:type="cover"></div>')
                 cover_div = cover_html.xpath("//div")[0]
                 new_img = cover_div.makeelement("img")
                 new_img.attrib.update({"src": self.cover, "alt": "Cover"})

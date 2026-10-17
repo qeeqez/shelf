@@ -81,7 +81,9 @@ class TestTocNcx:
     def test_uid_matches_identifier(self):
         b = make_builder("/tmp/x")
         ncx = b._toc_ncx(toc_items())
-        assert 'content="1234567890" name="dtb:uid"' in ncx
+        # dtb:uid must equal dc:identifier exactly — both go through
+        # _identifier() so the urn:isbn scheme can't drift apart.
+        assert 'content="urn:isbn:1234567890" name="dtb:uid"' in ncx
         assert "ID:ISBN:" not in ncx
 
     def test_container_heading_uses_first_child_href(self):
