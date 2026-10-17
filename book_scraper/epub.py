@@ -1,7 +1,8 @@
-"""Assemble downloaded chapters/assets into a valid EPUB file."""
+"""Assemble downloaded chapters/assets into a valid EPUB 3 file."""
 
 import os
 import zipfile
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape
 
 CONTAINER_XML = (
@@ -15,22 +16,28 @@ CONTAINER_XML = (
 
 # {0}=id {1}=title {2}=authors {3}=description {4}=subjects {5}=publisher
 # {6}=rights {7}=date {8}=cover-meta-id {9}=manifest {10}=spine {11}=cover-href
+# {12}=dcterms:modified
 CONTENT_OPF = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
-    '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0" >\n'
-    '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" '
+    '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid"'
+    ' version="3.0">\n'
+    '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"'
     ' xmlns:opf="http://www.idpf.org/2007/opf">\n'
-    "<dc:title>{1}</dc:title>\n{2}\n<dc:description>{3}</dc:description>\n{4}"
-    "<dc:publisher>{5}</dc:publisher>\n"
-    "<dc:rights>{6}</dc:rights>\n"
+    '<dc:identifier id="bookid">{0}</dc:identifier>\n'
+    "<dc:title>{1}</dc:title>\n{2}\n"
     "<dc:language>en-US</dc:language>\n"
     "<dc:date>{7}</dc:date>\n"
-    '<dc:identifier id="bookid">{0}</dc:identifier>\n'
+    "<dc:description>{3}</dc:description>\n{4}"
+    "<dc:publisher>{5}</dc:publisher>\n"
+    "<dc:rights>{6}</dc:rights>\n"
+    '<meta property="dcterms:modified">{12}</meta>\n'
     '<meta name="cover" content="{8}"/>\n'
     "</metadata>\n<manifest>\n"
-    '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml" />\n'
-    '{9}\n</manifest>\n<spine toc="ncx">\n{10}</spine>\n'
-    '<guide><reference href="{11}" title="Cover" type="cover" /></guide>\n'
+    '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml"'
+    ' properties="nav"/>\n'
+    '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n'
+    "{9}\n</manifest>\n<spine>\n{10}</spine>\n"
+    '<guide><reference href="{11}" title="Cover" type="cover"/></guide>\n'
     "</package>"
 )
 
@@ -52,6 +59,20 @@ TOC_NCX = (
     "</ncx>"
 )
 
+# {0}=title {1}=toc-ol {2}=landmarks-ol
+NAV_XHTML = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    "<!DOCTYPE html>\n"
+    '<html xmlns="http://www.w3.org/1999/xhtml"'
+    ' xmlns:epub="http://www.idpf.org/2007/ops">\n'
+    '<head><meta charset="utf-8"/><title>{0}</title></head>\n'
+    "<body>\n"
+    '<nav epub:type="toc" id="toc">\n<h1>{0}</h1>\n{1}</nav>\n'
+    '<nav epub:type="landmarks" hidden="hidden">\n'
+    "<h1>Landmarks</h1>\n<ol>\n{2}</ol>\n</nav>\n"
+    "</body>\n</html>"
+)
+
 IMAGE_MEDIA_TYPES = {
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
@@ -69,6 +90,10 @@ def _item_id(filename):
 def _image_media_type(filename):
     ext = filename.rsplit(".", 1)[-1].lower()
     return IMAGE_MEDIA_TYPES.get(ext, "image/" + ext)
+
+
+def _epub_href(filename):
+    return filename.replace(".html", ".xhtml").split("/")[-1]
 
 
 class EpubBuilder:
@@ -111,25 +136,27 @@ class EpubBuilder:
 
     def _content_opf(self, chapters, cover_src, first_chapter):
         manifest = [
-            '<item id="{}" href="{}" media-type="application/xhtml+xml" />'.format(
+            '<item id="{}" href="{}" media-type="application/xhtml+xml"/>'.format(
                 _item_id(c["filename"]), c["filename"]
             )
             for c in chapters
         ]
-        spine = [
-            '<itemref idref="{}"/>'.format(_item_id(c["filename"])) for c in chapters
-        ]
+        spine = [f'<itemref idref="{_item_id(c["filename"])}"/>' for c in chapters]
 
+        cover_name = os.path.basename(cover_src) if cover_src else ""
         for name in sorted(set(os.listdir(self.images_path))):
+            props = ' properties="cover-image"' if name == cover_name else ""
             manifest.append(
-                '<item id="img_{}" href="Images/{}" media-type="{}" />'.format(
-                    escape("".join(name.split(".")[:-1])), name, _image_media_type(name)
+                '<item id="img_{}" href="Images/{}" media-type="{}"{}/>'.format(
+                    escape("".join(name.split(".")[:-1])),
+                    name,
+                    _image_media_type(name),
+                    props,
                 )
             )
         for i, name in enumerate(sorted(os.listdir(self.css_path))):
             manifest.append(
-                f'<item id="style_{i:0>2}" href="Styles/{name}" '
-                'media-type="text/css" />'
+                f'<item id="style_{i:0>2}" href="Styles/{name}" media-type="text/css"/>'
             )
 
         authors = "\n".join(
@@ -147,6 +174,7 @@ class EpubBuilder:
             if cover_src
             else ""
         )
+        modified = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         return CONTENT_OPF.format(
             escape(self.book_info.get("isbn") or self.book_id),
@@ -161,9 +189,10 @@ class EpubBuilder:
             "\n".join(manifest),
             "\n".join(spine),
             first_chapter,
+            modified,
         )
 
-    def _parse_toc(self, items, counter=0, max_depth=0):
+    def _parse_toc_ncx(self, items, counter=0, max_depth=0):
         result = ""
         for item in items:
             counter += 1
@@ -175,11 +204,11 @@ class EpubBuilder:
                     item["fragment"] if item["fragment"] else item["id"],
                     counter,
                     escape(item["label"]),
-                    item["href"].replace(".html", ".xhtml").split("/")[-1],
+                    _epub_href(item["href"]),
                 )
             )
             if item["children"]:
-                sub, counter, max_depth = self._parse_toc(
+                sub, counter, max_depth = self._parse_toc_ncx(
                     item["children"], counter, max_depth
                 )
                 result += sub
@@ -187,13 +216,44 @@ class EpubBuilder:
         return result, counter, max_depth
 
     def _toc_ncx(self, toc_items):
-        navmap, _, max_depth = self._parse_toc(toc_items)
+        navmap, _, max_depth = self._parse_toc_ncx(toc_items)
         return TOC_NCX.format(
             escape(self.book_info.get("isbn") or self.book_id),
             max_depth,
             escape(self.book_info["title"]),
             escape(", ".join(self.book_info.get("authors", []))),
             navmap,
+        )
+
+    def _toc_ol(self, items):
+        lis = []
+        for item in items:
+            href = _epub_href(item["href"])
+            if item["fragment"]:
+                href += "#" + item["fragment"]
+            children = self._toc_ol(item["children"]) if item["children"] else ""
+            lis.append(
+                f'<li><a href="{escape(href)}">'
+                f"{escape(item['label'])}</a>{children}</li>"
+            )
+        return "<ol>\n" + "\n".join(lis) + "\n</ol>"
+
+    def _nav_xhtml(self, toc_items, chapters):
+        landmarks = []
+        if chapters:
+            landmarks.append(
+                f'<li><a epub:type="cover" href="{chapters[0]["filename"]}">'
+                "Cover</a></li>"
+            )
+            if len(chapters) > 1:
+                landmarks.append(
+                    f'<li><a epub:type="bodymatter" '
+                    f'href="{chapters[1]["filename"]}">Start of Content</a></li>'
+                )
+        return NAV_XHTML.format(
+            escape(self.book_info["title"]),
+            self._toc_ol(toc_items),
+            "\n".join(landmarks),
         )
 
     # -- final assembly -------------------------------------------------------------
@@ -211,6 +271,12 @@ class EpubBuilder:
             )
         with open(os.path.join(self.oebps, "toc.ncx"), "wb") as f:
             f.write(self._toc_ncx(toc_items).encode("utf-8", "xmlcharrefreplace"))
+        with open(os.path.join(self.oebps, "nav.xhtml"), "wb") as f:
+            f.write(
+                self._nav_xhtml(toc_items, chapters).encode(
+                    "utf-8", "xmlcharrefreplace"
+                )
+            )
 
         if os.path.isfile(epub_path):
             os.remove(epub_path)

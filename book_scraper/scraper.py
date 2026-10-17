@@ -88,7 +88,9 @@ class BookScraper:
             chapter_css = [s["url"] for s in ch["stylesheets"]] + ch["site_styles"]
             root = api.get_chapter_root(ch)
             page_css, xhtml = tx.parse(root, chapter_css, first_page=(i == 0))
-            builder.write_chapter(out_name, tx.render_page(page_css, xhtml))
+            builder.write_chapter(
+                out_name, tx.render_page(page_css, xhtml, title=ch["title"])
+            )
 
         # Fallback cover: use metadata cover URL when no cover page was detected
         if not tx.cover and info.get("cover"):
@@ -101,7 +103,8 @@ class BookScraper:
             )
             page_css, xhtml = tx.parse(fake, first_page=True)
             builder.write_chapter(
-                "default_cover.xhtml", tx.render_page(page_css, xhtml)
+                "default_cover.xhtml",
+                tx.render_page(page_css, xhtml, title="Cover"),
             )
             chapters = [
                 {"filename": "default_cover.xhtml", "title": "Cover"}

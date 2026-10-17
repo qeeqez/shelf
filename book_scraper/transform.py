@@ -2,36 +2,48 @@
 
 import pathlib
 from urllib.parse import urljoin, urlparse
+from xml.sax.saxutils import escape
 
 from lxml import etree, html
 
-BASE_01_HTML = (
+PAGE_HEAD = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
     "<!DOCTYPE html>\n"
-    '<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml"'
-    ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-    ' xsi:schemaLocation="http://www.w3.org/2002/06/xhtml2/'
-    ' http://www.w3.org/MarkUp/SCHEMA/xhtml2.xsd"'
-    ' xmlns:epub="http://www.idpf.org/2007/ops">\n'
-    "<head>\n{0}\n"
-    '<style type="text/css">'
-    "body{{margin:1em;background-color:transparent!important;}}"
-    "#sbo-rt-content *{{text-indent:0pt!important;}}"
-    "#sbo-rt-content .bq{{margin-right:1em!important;}}"
+    '<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">\n'
+    "<head>\n"
 )
 
-KINDLE_HTML = (
-    "#sbo-rt-content *{{word-wrap:break-word!important;word-break:break-word!important;}}"
-    "#sbo-rt-content table,#sbo-rt-content pre{{overflow-x:unset!important;"
-    "overflow:unset!important;overflow-y:unset!important;white-space:pre-wrap!important;}}"
+PAGE_MID = "\n</head>\n<body>"
+PAGE_TAIL = "</body>\n</html>"
+
+BASE_CSS = (
+    "body{margin:1em;background-color:transparent!important;}"
+    "#sbo-rt-content *{text-indent:0pt!important;}"
+    "#sbo-rt-content .bq{margin-right:1em!important;}"
+    "img,svg,video{max-width:100%;height:auto;}"
+    "pre,code,kbd,samp{white-space:pre-wrap;word-wrap:break-word;"
+    "word-break:break-word;}"
+    "table{max-width:100%;}"
+    "h1,h2,h3,h4,h5,h6{page-break-after:avoid;}"
 )
 
-BASE_02_HTML = "</style></head>\n<body>{1}</body>\n</html>"
+KINDLE_CSS = (
+    "#sbo-rt-content *{word-wrap:break-word!important;word-break:break-word!important;}"
+    "#sbo-rt-content table,#sbo-rt-content pre{overflow-x:unset!important;"
+    "overflow:unset!important;overflow-y:unset!important;white-space:pre-wrap!important;}"
+)
 
-COVER_STYLE = (
-    "<style>body{display:table;position:absolute;margin:0!important;"
+COVER_CSS = (
+    "body{display:table;position:absolute;margin:0!important;"
     "height:100%;width:100%;}"
     "#Cover{display:table-cell;vertical-align:middle;text-align:center;}"
-    "img{height:90vh;margin-left:auto;margin-right:auto;}</style>"
+    "img{height:90vh;margin-left:auto;margin-right:auto;}"
+)
+
+# Interactive/reader-only elements that have no place in an EPUB document
+STRIP_XPATH = (
+    ".//script|.//iframe|.//noscript|.//button|.//form|.//input"
+    "|.//select|.//textarea|.//div[@class='controls']"
 )
 
 
@@ -55,7 +67,7 @@ class Transformer:
         self.book_id = book_id
         self.base_url = base_url
         self.css = []  # ordered registry of stylesheet URLs
-        self.base_html = BASE_01_HTML + (KINDLE_HTML if kindle else "") + BASE_02_HTML
+        self.base_css = BASE_CSS + (KINDLE_CSS if kindle else "")
         self.cover = None
 
         lowercase_ns = etree.FunctionNamespace(None)
@@ -104,8 +116,8 @@ class Transformer:
         if css_url not in self.css:
             self.css.append(css_url)
         return (
-            f'<link href="Styles/Style{self.css.index(css_url):0>2}.css" rel="stylesheet" '
-            'type="text/css" />\n'
+            f'<link href="Styles/Style{self.css.index(css_url):0>2}.css" '
+            'rel="stylesheet" type="text/css" />\n'
         )
 
     # -- main entry -----------------------------------------------------------------
@@ -154,13 +166,17 @@ class Transformer:
                 svg_root.remove(img.getparent())
                 svg_root.append(new_img)
 
+        # Strip reader-only interactive elements
+        for el in content_root.xpath(STRIP_XPATH):
+            el.getparent().remove(el)
+
         content_root.rewrite_links(self._link_replace)
 
         if first_page:
             cover_img = self._find_cover_image(content_root)
             if cover_img is not None:
                 self.cover = cover_img.attrib["src"]
-                page_css = COVER_STYLE
+                page_css = f"<style>{COVER_CSS}</style>"
                 cover_html = html.fromstring('<div id="Cover"></div>')
                 cover_div = cover_html.xpath("//div")[0]
                 new_img = cover_div.makeelement("img")
@@ -171,5 +187,11 @@ class Transformer:
         xhtml = html.tostring(content_root, method="xml", encoding="unicode")
         return page_css, xhtml
 
-    def render_page(self, page_css, xhtml):
-        return self.base_html.format(page_css, xhtml)
+    def render_page(self, page_css, xhtml, title=""):
+        head = (
+            '<meta charset="utf-8"/>\n'
+            f"<title>{escape(title)}</title>\n"
+            f"{page_css}"
+            f'<style type="text/css">{self.base_css}</style>'
+        )
+        return PAGE_HEAD + head + PAGE_MID + xhtml + PAGE_TAIL
