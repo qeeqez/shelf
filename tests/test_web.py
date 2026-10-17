@@ -9,6 +9,7 @@ from shelf.web import (
     _rewrite_links,
     _section_entries,
     _sidebar_ul,
+    build_web,
 )
 
 
@@ -112,6 +113,22 @@ class TestSidebar:
         assert '<span class="branch">Part I</span>' in out
         assert 'href=".html"' not in out
 
+    def test_href_attribute_escapes_quotes(self):
+        """escape() leaves '"' alone by default — inside a double-quoted
+        attribute it must become &quot; or it breaks out of the tag."""
+        items = [
+            {
+                "id": "x",
+                "label": "L",
+                "href": "ch01.html",
+                "fragment": 'sec"quote',
+                "depth": 1,
+                "children": [],
+            }
+        ]
+        out = _sidebar_ul(items, None)
+        assert 'href="ch01.html#sec&quot;quote"' in out
+
 
 PAGER_CH = [
     {"filename": "a.html", "title": "A"},
@@ -132,6 +149,10 @@ class TestPager:
     def test_last_prev_only(self):
         p = _pager(PAGER_CH, 2)
         assert 'class="prev"' in p and 'class="next"' not in p
+
+    def test_href_escapes_quotes(self):
+        ch = [{"filename": 'a"b.html', "title": "A"}, PAGER_CH[1]]
+        assert 'href="a&quot;b.html"' in _pager(ch, 1)
 
 
 XHTML_PAGE = """<?xml version="1.0" encoding="utf-8"?>
@@ -166,6 +187,17 @@ class TestSearchIndex:
         _, _, _, is_index = _chapter_data(str(tmp_path / "ix01.xhtml"))
         assert is_index
 
+    def test_index_epubtype_multi_value(self, tmp_path):
+        """epub:type is a space-separated list — 'index backmatter' is
+        still an index page and must stay out of the search index."""
+        (tmp_path / "ix01.xhtml").write_text(
+            '<?xml version="1.0"?><html><body>'
+            '<div epub:type="index backmatter" id="ix"><h1>Index</h1></div>'
+            "</body></html>"
+        )
+        _, _, _, is_index = _chapter_data(str(tmp_path / "ix01.xhtml"))
+        assert is_index
+
     def test_markup_noise_not_indexed(self, tmp_path):
         """style/script/math text is markup, not prose — keep it out."""
         (tmp_path / "ch01.xhtml").write_text(
@@ -182,6 +214,29 @@ class TestSearchIndex:
         assert "color:red" not in text
         assert "var z=1" not in text
         assert "zzq" not in text
+
+    def test_comments_not_indexed(self, tmp_path):
+        """Comment text isn't prose — but the tail after it is."""
+        (tmp_path / "ch01.xhtml").write_text(
+            '<?xml version="1.0"?><html><body><div class="chapter" id="c">'
+            "<h1>T</h1><!-- secret draft note -->"
+            "<p>real prose</p></div></body></html>"
+        )
+        _, _, body, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
+        text = " ".join(e["s"] for e in _section_entries(body, "C", "ch01.html"))
+        assert "real prose" in text
+        assert "secret draft note" not in text
+
+    def test_body_id_not_used_as_fragment(self, tmp_path):
+        """<body>/<html> ids never reach the generated page — a heading
+        with no nearer id must deep-link to the page, not a phantom id."""
+        (tmp_path / "ch01.xhtml").write_text(
+            '<?xml version="1.0"?><html><body id="bodyid">'
+            "<div><h2>Section</h2><p>text</p></div></body></html>"
+        )
+        _, _, body, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
+        entries = _section_entries(body, "C", "ch01.html")
+        assert entries[0]["u"] == "ch01.html"
 
 
 class TestChapterBody:
@@ -217,3 +272,46 @@ class TestChapterBody:
         styles, body, _, _ = _chapter_data(str(tmp_path / "ch01.xhtml"))
         assert "color:blue" in body
         assert "color:blue" not in styles
+
+
+def make_book(tmp_path, names=("a", "b", "c")):
+    oebps = tmp_path / "OEBPS"
+    oebps.mkdir()
+    for n in names:
+        (oebps / f"{n}.xhtml").write_text(
+            f'<?xml version="1.0"?><html><body>'
+            f'<div class="chapter" id="{n}"><h1>{n}</h1>'
+            f"<p>{n} text</p></div></body></html>"
+        )
+    return str(oebps)
+
+
+class TestBuildWeb:
+    def test_missing_chapter_gets_no_links(self, tmp_path):
+        """A chapter whose .xhtml is absent is skipped — the pager, head
+        rel links and 'Start reading' must not point at a 404 page."""
+        oebps = make_book(tmp_path, names=("a", "c"))  # b never written
+        chapters = [{"filename": f"{n}.html", "title": n} for n in "abc"]
+        web = tmp_path / "web"
+        build_web(oebps, chapters, [], {"title": "T"}, str(web))
+        c_page = (web / "chapters" / "c.html").read_text(encoding="utf-8")
+        assert 'href="a.html"' in c_page  # prev skips the missing b
+        assert "b.html" not in c_page
+        a_page = (web / "chapters" / "a.html").read_text(encoding="utf-8")
+        assert 'href="c.html"' in a_page  # next skips it too
+        assert "b.html" not in a_page
+        index = (web / "index.html").read_text(encoding="utf-8")
+        assert 'href="chapters/a.html"' in index
+
+    def test_description_markup_stripped_for_meta(self, tmp_path):
+        """info['description'] ships HTML markup — meta tags need text."""
+        oebps = make_book(tmp_path, names=("a",))
+        chapters = [{"filename": "a.html", "title": "a"}]
+        info = {
+            "title": "T",
+            "description": '<p>hello <b>"world"</b></p>',
+        }
+        web = tmp_path / "web"
+        build_web(oebps, chapters, [], info, str(web))
+        index = (web / "index.html").read_text(encoding="utf-8")
+        assert 'content="hello &quot;world&quot;"' in index

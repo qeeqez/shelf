@@ -224,16 +224,21 @@ SITE_JS = """\
   // Sidebar TOC ships as assets/toc.js (SHELF_TOC) — one shared file instead
   // of ~64KB inlined into every chapter page. Chapter pages embed only a
   // <noscript> fallback link to toc.html.
-  var page = location.pathname.split("/").pop() || "index.html";
+  // pathname is percent-encoded; TOC hrefs are not — decode before matching.
+  var page =
+    decodeURIComponent(location.pathname.split("/").pop()) || "index.html";
   var navEl = document.querySelector("nav.sidebar");
   if (navEl && window.SHELF_TOC) {
     navEl.innerHTML = window.SHELF_TOC;
     // Mark the current chapter — shared markup can't carry per-page state.
+    // Only the first match (the chapter's own TOC entry): section links
+    // point into the same page but aren't "the current page".
+    var marked = false;
     navEl.querySelectorAll("a[href]").forEach(function (a) {
-      if (a.getAttribute("href").split("#")[0] === page) {
-        a.classList.add("active");
-        a.setAttribute("aria-current", "page");
-      }
+      if (marked || a.getAttribute("href").split("#")[0] !== page) return;
+      marked = true;
+      a.classList.add("active");
+      a.setAttribute("aria-current", "page");
     });
   }
 
@@ -337,6 +342,7 @@ SITE_JS = """\
       '<path d="M13.5 9.5A6 6 0 116.5 2.5a4.8 4.8 0 007 7z"/></svg>',
   };
   function applyTheme(t) {
+    if (!GLYPHS[t]) t = "system"; // unknown stored value → fall back
     document.documentElement.dataset.theme = t;
     if (themeBtn) {
       themeBtn.innerHTML = GLYPHS[t];
@@ -401,8 +407,6 @@ SITE_JS = """\
     var a = document.querySelector(sel);
     if (a) location.href = a.href;
   });
-  var act = document.querySelector("nav.sidebar a.active");
-  if (act && act.scrollIntoView) act.scrollIntoView({ block: "nearest" });
 
   // -- client-side search --------------------------------------------------
   var box = document.getElementById("search-box");
@@ -424,6 +428,10 @@ SITE_JS = """\
         idx[i]._tl = idx[i].t.toLowerCase();
         idx[i]._sl = idx[i].s.toLowerCase();
       }
+      doSearch(); // a query may have been typed while the index loaded
+    };
+    s.onerror = function () {
+      idx = []; // missing index → "No results" instead of a dead search box
     };
     document.head.appendChild(s);
   }
@@ -576,7 +584,10 @@ SITE_JS = """\
     if (i < 0) return;
     var p = href.slice(0, i);
     if (p && p !== page) return;
-    var el = document.getElementById(decodeURIComponent(href.slice(i + 1)));
+    var el = null;
+    try {
+      el = document.getElementById(decodeURIComponent(href.slice(i + 1)));
+    } catch (e) {}
     if (!el) return;
     spyLinks.push(a);
     spyEls.push(el);
@@ -672,6 +683,15 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
 """
 
 
+# escape() only handles &<> by default — every interpolated value inside a
+# double-quoted attribute also needs " escaped or it breaks out of the tag.
+_ATTR_ENTITIES = {'"': "&quot;"}
+
+
+def _attr(text):
+    return escape(text, _ATTR_ENTITIES)
+
+
 def _stem(filename):
     return os.path.splitext(os.path.basename(filename))[0]
 
@@ -700,7 +720,8 @@ def _chapter_data(path):
     is_index). Callers render body_html and index body_element — parsing
     twice per chapter (once for each) was the generator's hot spot."""
     doc = html.parse(path).getroot()
-    is_index = any(el.get("epub:type") == "index" for el in doc.iter())
+    # epub:type is a space-separated list (e.g. "index backmatter").
+    is_index = any("index" in (el.get("epub:type") or "").split() for el in doc.iter())
     body = doc.find("body")
     if body is None:
         return "", "", None, is_index
@@ -745,8 +766,10 @@ SECTION_TAGS = frozenset(("h1", "h2", "h3", "h4"))
 SKIP_TEXT_TAGS = frozenset(("style", "script", "noscript", "math", "svg"))
 
 
-def _nearest_id(el):
-    while el is not None:
+def _nearest_id(el, stop=None):
+    """Closest id at or above el, not climbing past stop. <body>/<html> ids
+    never make it into the generated page — they'd be phantom fragments."""
+    while el is not None and el is not stop:
         i = el.get("id")
         if i:
             return i
@@ -776,11 +799,16 @@ def _section_entries(body, chapter_title, page):
             if el in noise_roots and el.tail:
                 cur["s"].append(el.tail)
             continue
+        if not isinstance(el.tag, str):
+            # Comments/PIs carry no prose; the tail after them is real text.
+            if el.tail:
+                cur["s"].append(el.tail)
+            continue
         if el.tag in SECTION_TAGS:
             text = " ".join(" ".join(cur["s"]).split())
             if text:
                 entries.append({"t": cur["t"], "u": cur["u"], "s": text})
-            frag = _nearest_id(el)
+            frag = _nearest_id(el, body)
             title = " ".join("".join(el.itertext()).split()) or cur["t"]
             cur = {"t": title, "u": page + (f"#{frag}" if frag else ""), "s": []}
         if el.text:
@@ -818,7 +846,7 @@ def _sidebar_ul(items, active_item, prefix=""):
             href = prefix + _page_name(item["href"])
             if item["fragment"]:
                 href += "#" + item["fragment"]
-            label = f'<a href="{escape(href)}"{cls}>{escape(item["label"])}</a>'
+            label = f'<a href="{_attr(href)}"{cls}>{escape(item["label"])}</a>'
         else:
             label = f'<span class="branch">{escape(item["label"])}</span>'
         lis.append(f"<li>{label}{children}</li>")
@@ -830,14 +858,14 @@ def _pager(chapters, i):
     if i > 0:
         p = chapters[i - 1]
         prev_link = (
-            f'<a class="prev" href="{_page_name(p["filename"])}">'
+            f'<a class="prev" href="{_attr(_page_name(p["filename"]))}">'
             f"&larr; {escape(p['title'])}</a>"
         )
     next_link = ""
     if i + 1 < len(chapters):
         n = chapters[i + 1]
         next_link = (
-            f'<a class="next" href="{_page_name(n["filename"])}">'
+            f'<a class="next" href="{_attr(_page_name(n["filename"]))}">'
             f"{escape(n['title'])} &rarr;</a>"
         )
     if not (prev_link or next_link):
@@ -857,16 +885,16 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(web_dir, sub), dirs_exist_ok=True)
 
-    with open(os.path.join(assets, "site.css"), "w") as f:
+    with open(os.path.join(assets, "site.css"), "w", encoding="utf-8") as f:
         f.write(SITE_CSS)
-    with open(os.path.join(assets, "site.js"), "w") as f:
+    with open(os.path.join(assets, "site.js"), "w", encoding="utf-8") as f:
         f.write(SITE_JS)
     # The book's own cover is the favicon — instantly identifiable in tabs.
     # Generic book glyph when the book has no cover. {root} resolves per page.
     if cover_src:
-        favicon = f'<link rel="icon" href="{{root}}{escape(cover_src)}"/>'
+        favicon = f'<link rel="icon" href="{{root}}{_attr(cover_src)}"/>'
     else:
-        with open(os.path.join(assets, "icon.svg"), "w") as f:
+        with open(os.path.join(assets, "icon.svg"), "w", encoding="utf-8") as f:
             f.write(FALLBACK_ICON)
         favicon = '<link rel="icon" href="{root}assets/icon.svg" type="image/svg+xml"/>'
 
@@ -874,7 +902,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     book_links = ""
     if os.path.isdir(styles_dir):
         book_links = "".join(
-            f'<link rel="stylesheet" href="{{root}}Styles/{n}"/>\n'
+            f'<link rel="stylesheet" href="{{root}}Styles/{_attr(n)}"/>\n'
             for n in sorted(os.listdir(styles_dir))
             if n.endswith(".css")
         )
@@ -895,7 +923,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         sidebar=None,
         toc_script="",
     ):
-        page = PAGE.replace("{lang}", escape(lang))
+        page = PAGE.replace("{lang}", _attr(lang))
         page = page.replace("{page_title}", escape(page_title))
         page = page.replace("{book_title}", escape(title))
         page = page.replace("{book_links}", book_links)
@@ -912,7 +940,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         # {root} appears both in the template and inside injected chunks
         # (book_links, favicon) — resolve last so nested placeholders expand.
         page = page.replace("{root}", root)
-        with open(os.path.join(web_dir, into), "w") as f:
+        with open(os.path.join(web_dir, into), "w", encoding="utf-8") as f:
             f.write(page)
 
     # Chapter pages live under chapters/ so index.html stands alone at the
@@ -925,10 +953,18 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     # let site.js hydrate + mark the active chapter. Chapter pages keep only
     # a no-JS link to toc.html; index/toc embed the real list.
     toc_js = "window.SHELF_TOC=" + json.dumps(_sidebar_ul(toc_items, None)) + ";"
-    with open(os.path.join(assets, "toc.js"), "w") as f:
+    with open(os.path.join(assets, "toc.js"), "w", encoding="utf-8") as f:
         f.write(toc_js)
 
-    flat = [c for c in chapters]
+    # Only chapters whose source file exists — otherwise pagers and the
+    # "Start reading" link would point at pages that were never rendered.
+    flat = [
+        c
+        for c in chapters
+        if os.path.isfile(
+            os.path.join(oebps_dir, c["filename"].replace(".html", ".xhtml"))
+        )
+    ]
     entries = []  # search index — collected here to reuse the parse
     for i, ch in enumerate(flat):
         path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
@@ -942,11 +978,13 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         rel_links = ""
         if i > 0:
             rel_links += (
-                f'<link rel="prev" href="{_page_name(flat[i - 1]["filename"])}"/>'
+                f'<link rel="prev" '
+                f'href="{_attr(_page_name(flat[i - 1]["filename"]))}"/>'
             )
         if i + 1 < len(flat):
             rel_links += (
-                f'<link rel="next" href="{_page_name(flat[i + 1]["filename"])}"/>'
+                f'<link rel="next" '
+                f'href="{_attr(_page_name(flat[i + 1]["filename"]))}"/>'
             )
         render(
             f"{ch['title']} — {title}",
@@ -964,7 +1002,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         )
 
     # Client-side search index
-    with open(os.path.join(assets, "search-index.js"), "w") as f:
+    with open(os.path.join(assets, "search-index.js"), "w", encoding="utf-8") as f:
         f.write("window.SHELF_SEARCH=")
         f.write(json.dumps(entries, ensure_ascii=False, separators=(",", ":")))
         f.write(";")
@@ -983,27 +1021,30 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     # Landing page
     hero = ""
     if cover_src:
-        hero = f'<img src="{escape(cover_src)}" alt="Cover"/>'
+        hero = f'<img src="{_attr(cover_src)}" alt="Cover"/>'
     authors = ", ".join(info.get("authors", []))
     hero += f"<h1>{escape(title)}</h1>"
     if authors:
         hero += f'<p class="authors">{escape(authors)}</p>'
     first = "chapters/" + _page_name(flat[0]["filename"]) if flat else "toc.html"
-    hero += f'<p><a href="{first}">Start reading &rarr;</a></p>'
+    hero += f'<p><a href="{_attr(first)}">Start reading &rarr;</a></p>'
     og = (
-        f'<meta property="og:title" content="{escape(title)}"/>'
+        f'<meta property="og:title" content="{_attr(title)}"/>'
         '<meta property="og:type" content="book"/>'
     )
     if authors:
-        og += f'<meta name="author" content="{escape(authors)}"/>'
+        og += f'<meta name="author" content="{_attr(authors)}"/>'
     if info.get("description"):
-        desc = " ".join(info["description"].split())[:300]
+        # Descriptions ship as HTML markup — reduce to plain text for meta.
+        desc = " ".join(html.fromstring(info["description"]).text_content().split())[
+            :300
+        ]
         og += (
-            f'<meta name="description" content="{escape(desc)}"/>'
-            f'<meta property="og:description" content="{escape(desc)}"/>'
+            f'<meta name="description" content="{_attr(desc)}"/>'
+            f'<meta property="og:description" content="{_attr(desc)}"/>'
         )
     if cover_src:
-        og += f'<meta property="og:image" content="{escape(cover_src)}"/>'
+        og += f'<meta property="og:image" content="{_attr(cover_src)}"/>'
     render(
         title,
         None,
