@@ -67,7 +67,7 @@ TOC_NCX = (
 NAV_XHTML = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     "<!DOCTYPE html>\n"
-    '<html xmlns="http://www.w3.org/1999/xhtml"'
+    '<html xmlns="http://www.w3.org/1999/xhtml" lang="{3}" xml:lang="{3}"'
     ' xmlns:epub="http://www.idpf.org/2007/ops">\n'
     '<head><meta charset="utf-8"/><title>{0}</title></head>\n'
     "<body>\n"
@@ -154,24 +154,35 @@ class EpubBuilder:
     def has_chapter(self, filename):
         return os.path.isfile(self.chapter_path(filename))
 
+    @staticmethod
+    def _atomic_write(path, content):
+        # Write-then-rename so an interrupted run can't leave a partial file
+        # that resume would mistake for complete.
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(content)
+        os.replace(tmp, path)
+
     def write_chapter(self, filename, rendered_html):
-        with open(self.chapter_path(filename), "wb") as f:
-            f.write(rendered_html.encode("utf-8", "xmlcharrefreplace"))
+        self._atomic_write(
+            self.chapter_path(filename),
+            rendered_html.encode("utf-8", "xmlcharrefreplace"),
+        )
 
     def write_css(self, index, content):
         self.write_named_css(f"Style{index:0>2}.css", content)
 
     def write_named_css(self, name, content):
-        with open(os.path.join(self.css_path, name), "wb") as f:
-            f.write(content if isinstance(content, bytes) else content.encode())
+        self._atomic_write(
+            os.path.join(self.css_path, name),
+            content if isinstance(content, bytes) else content.encode(),
+        )
 
     def write_font(self, name, content):
-        with open(os.path.join(self.fonts_path, name), "wb") as f:
-            f.write(content)
+        self._atomic_write(os.path.join(self.fonts_path, name), content)
 
     def write_image(self, name, content):
-        with open(os.path.join(self.images_path, name), "wb") as f:
-            f.write(content)
+        self._atomic_write(os.path.join(self.images_path, name), content)
 
     # -- metadata writers --------------------------------------------------------
 
@@ -386,6 +397,7 @@ class EpubBuilder:
             escape(self.book_info["title"]),
             self._toc_ol(toc_items),
             "\n".join(landmarks),
+            escape(self.book_info.get("language") or "en"),
         )
 
     # -- final assembly -------------------------------------------------------------
@@ -424,7 +436,7 @@ class EpubBuilder:
                 for root, dirs, files in os.walk(base):
                     dirs[:] = [d for d in dirs if not d.startswith(".")]
                     for name in sorted(files):
-                        if name.startswith("."):
+                        if name.startswith(".") or name.endswith(".tmp"):
                             continue
                         full = os.path.join(root, name)
                         arc = os.path.relpath(full, self.work_dir)

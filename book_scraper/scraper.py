@@ -162,10 +162,23 @@ class BookScraper:
         if self.force and os.path.isdir(work_dir):
             shutil.rmtree(work_dir)
         builder = EpubBuilder(info, book_id, work_dir)
-        tx = Transformer(book_id, info["web_url"], kindle=self.kindle)
+        tx = Transformer(
+            book_id, info["web_url"], kindle=self.kindle, lang=info["language"]
+        )
+
+        # Same-basename chapters would clobber each other when written flat.
+        seen_names = set()
+        for ch in chapters:
+            if ch["filename"] in seen_names:
+                self.log(
+                    "  warning: duplicate chapter filename"
+                    f" {ch['filename']} — chapters may be lost"
+                )
+            seen_names.add(ch["filename"])
 
         images = []  # full download URLs
         fonts = []
+        asset_failures = 0
         self.log("Downloading chapters...")
         total = len(chapters)
         for i, ch in enumerate(chapters):
@@ -276,6 +289,7 @@ class BookScraper:
                 content, _ = api.get_binary(css_url)
                 builder.write_css(i, rewrite_css_urls(content, image_names, font_names))
             except (ApiError, OSError) as exc:
+                asset_failures += 1
                 self.log(f"  warning: CSS {css_url} failed: {exc}")
 
         images = list(dict.fromkeys(images))
@@ -288,6 +302,7 @@ class BookScraper:
                 content, _ = api.get_binary(url)
                 builder.write_image(_basename(url), content)
             except (ApiError, OSError) as exc:
+                asset_failures += 1
                 self.log(f"  warning: image {url} failed: {exc}")
 
         fonts = list(dict.fromkeys(fonts))
@@ -299,6 +314,7 @@ class BookScraper:
                 content, _ = api.get_binary(url)
                 builder.write_font(_basename(url), content)
             except (ApiError, OSError) as exc:
+                asset_failures += 1
                 self.log(f"  warning: font {url} failed: {exc}")
 
         # Wire downloaded fonts into the shared stylesheet — book CSS often
@@ -315,6 +331,12 @@ class BookScraper:
             "BookScraper.css",
             tx.base_css + _font_faces(builder.fonts_path, css_text),
         )
+
+        if asset_failures:
+            self.log(
+                f"  warning: {asset_failures} assets failed to download"
+                " — re-run to retry (session may have expired)"
+            )
 
         self.log("Building EPUB...")
         toc = api.get_toc()

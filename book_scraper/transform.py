@@ -9,7 +9,7 @@ from lxml import etree, html
 PAGE_HEAD = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     "<!DOCTYPE html>\n"
-    '<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml"'
+    '<html lang="{lang}" xml:lang="{lang}" xmlns="http://www.w3.org/1999/xhtml"'
     ' xmlns:epub="http://www.idpf.org/2007/ops">\n'
     "<head>\n"
 )
@@ -68,9 +68,10 @@ def _is_image_link(url):
 
 
 class Transformer:
-    def __init__(self, book_id, base_url, kindle=False):
+    def __init__(self, book_id, base_url, kindle=False, lang="en"):
         self.book_id = book_id
         self.base_url = base_url
+        self.lang = lang or "en"
         self.css = []  # ordered registry of stylesheet URLs
         self.base_css = BASE_CSS + (KINDLE_CSS if kindle else "")
         self.cover = None
@@ -212,4 +213,10 @@ class Transformer:
             '<link href="Styles/BookScraper.css" rel="stylesheet"'
             ' type="text/css"/>'
         )
-        return PAGE_HEAD + head + PAGE_MID + xhtml + PAGE_TAIL
+        return (
+            PAGE_HEAD.format(lang=escape(self.lang))
+            + head
+            + PAGE_MID
+            + xhtml
+            + PAGE_TAIL
+        )
