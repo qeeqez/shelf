@@ -65,7 +65,8 @@ border-bottom:1px solid var(--line);z-index:20}
 header.top button{background:none;border:0;font-size:20px;cursor:pointer;
 color:var(--muted);padding:6px 12px;border-radius:6px}
 header.top button:hover{background:var(--hover)}
-#theme-btn,#wide-btn{width:36px;padding:6px 0;text-align:center}
+#theme-btn,#wide-btn{width:36px;height:36px;padding:0;display:flex;
+align-items:center;justify-content:center;line-height:1}
 #wide-btn[aria-pressed="true"]{color:var(--accent);background:var(--active)}
 header.top .booktitle{font-size:15px;font-weight:600;white-space:nowrap;
 overflow:hidden;text-overflow:ellipsis}
