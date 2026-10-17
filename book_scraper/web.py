@@ -14,23 +14,22 @@ SITE_CSS = """\
 --mark-fg:inherit;--card-bg:transparent;--card-fg:inherit;--card-pad:0;
 --card-r:0;--elev:0 8px 28px rgba(0,0,0,.18);
 --ring:0 0 0 2px #e8f0fe;--target:rgba(26,115,232,.4);
---hero-shadow:0 2px 12px rgba(0,0,0,.12)}
+--hero-shadow:0 2px 12px rgba(0,0,0,.12);
+--content-muted:#5f6368;--content-accent:#1a73e8}
 :root[data-theme="dark"]{--fg:#e8eaed;--muted:#9aa0a6;--line:#3c4043;
---accent:#8ab4f8;--code:#2d2f31;--bg:#17181a;--chrome:#1e1f21;
+--accent:#8ab4f8;--bg:#17181a;--chrome:#1e1f21;
 --hover:#303134;--sel:#26292e;--active:#374a6b;--input:#2d2f31;
 --input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;--card-bg:#fdfdfd;
 --card-fg:#202124;--card-pad:16px 28px;--card-r:8px;
 --elev:0 8px 28px rgba(0,0,0,.6);--ring:0 0 0 2px #374a6b;
---target:rgba(138,180,248,.35);
 --hero-shadow:0 2px 16px rgba(0,0,0,.5)}
 @media (prefers-color-scheme:dark){
 :root:not([data-theme="light"]){--fg:#e8eaed;--muted:#9aa0a6;
---line:#3c4043;--accent:#8ab4f8;--code:#2d2f31;--bg:#17181a;
+--line:#3c4043;--accent:#8ab4f8;--bg:#17181a;
 --chrome:#1e1f21;--hover:#303134;--sel:#26292e;--active:#374a6b;
 --input:#2d2f31;--input-focus:#2d2f31;--mark:#6b5d00;--mark-fg:#fff;
 --card-bg:#fdfdfd;--card-fg:#202124;--card-pad:16px 28px;--card-r:8px;
 --elev:0 8px 28px rgba(0,0,0,.6);--ring:0 0 0 2px #374a6b;
---target:rgba(138,180,248,.35);
 --hero-shadow:0 2px 16px rgba(0,0,0,.5)}
 }
 *{box-sizing:border-box}
@@ -99,6 +98,7 @@ body.sidebar-hidden main{margin-left:0}
 main [id]:target{box-shadow:0 0 0 3px var(--target);border-radius:2px}
 .content{max-width:740px;margin:0 auto;background:var(--card-bg);
 color:var(--card-fg);border-radius:var(--card-r);padding:var(--card-pad)}
+.content a{color:var(--content-accent)}
 .content img{max-width:100%;height:auto}
 .content h1{font-size:30px;line-height:1.25;margin:8px 0 24px}
 .content h2{font-size:24px;margin:36px 0 12px}
@@ -119,9 +119,9 @@ margin:20px 0;display:block;overflow-x:auto}
 text-align:left;vertical-align:top}
 .content th{background:#f8f9fa}
 .content blockquote{border-left:3px solid var(--line);margin:20px 0;
-padding:2px 20px;color:var(--muted)}
+padding:2px 20px;color:var(--content-muted)}
 .content figure{margin:28px 0;text-align:center}
-.content figcaption{font-size:14px;color:var(--muted);margin-top:8px}
+.content figcaption{font-size:14px;color:var(--content-muted);margin-top:8px}
 .content math[display="block"]{overflow-x:auto;max-width:100%}
 .content dl{margin:0 0 16px}
 .content dd{margin:0 0 6px 2em}
@@ -129,7 +129,7 @@ padding:2px 20px;color:var(--muted)}
 .content .sidebar,aside[data-type="sidebar"]{border:1px solid var(--line);
 border-radius:8px;background:#f8f9fa;padding:16px 20px;margin:24px 0}
 .content h6{font-size:.9em;font-weight:400;font-style:italic;text-align:center;
-color:var(--muted)}
+color:var(--content-muted)}
 .pager{display:flex;justify-content:space-between;gap:16px;max-width:740px;
 margin:48px auto 0;border-top:1px solid var(--line);padding-top:20px;
 font-size:15px}
@@ -138,17 +138,29 @@ font-size:15px}
 .index-hero img{max-width:320px;width:100%;border:1px solid var(--line);
 border-radius:4px;box-shadow:var(--hero-shadow)}
 .index-hero h1{font-size:34px;margin:24px 0 6px}
-.index-hero .authors{color:var(--muted);font-size:16px}
+.index-hero .authors{color:var(--content-muted);font-size:16px}
 @media (max-width:960px){
 nav.sidebar{box-shadow:2px 0 14px rgba(0,0,0,.18);
 transform:translateX(-104%)}
 body.sidebar-open nav.sidebar{transform:none}
 main{margin-left:0}
 }
+/* Content goes dark via invert+hue-rotate: lightness flips, hues survive
+   (book CSS colors like #C30/#069 stay readable). Images get counter-
+   inverted on a white backing so diagrams keep true colors. */
+:root[data-theme="dark"] .content{filter:invert(1) hue-rotate(180deg)}
+:root[data-theme="dark"] .content img,:root[data-theme="dark"] .content svg{
+filter:invert(1) hue-rotate(180deg);background:#fff;border-radius:2px}
+@media (prefers-color-scheme:dark){
+:root:not([data-theme="light"]) .content{filter:invert(1) hue-rotate(180deg)}
+:root:not([data-theme="light"]) .content img,
+:root:not([data-theme="light"]) .content svg{
+filter:invert(1) hue-rotate(180deg);background:#fff;border-radius:2px}
+}
 @media print{
 header.top,nav.sidebar,.pager,.skip{display:none}
 main{padding:0;margin-left:0}
-.content{max-width:none;padding:0}
+.content{max-width:none;padding:0;filter:none !important}
 figure,pre,table{break-inside:avoid}
 h1,h2,h3{break-after:avoid}
 }

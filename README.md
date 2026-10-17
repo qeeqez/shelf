@@ -56,7 +56,8 @@ and save the output to a file, then `--import-cookies cookies.json`.
 - `--web` — also produce a browsable static site at
   `Books/<Book Title> (<id>)/web/index.html` (sre.google-style layout:
   collapsible sidebar TOC, prev/next pager, `←`/`→` keyboard nav,
-  instant client-side search via a build-time index — no server needed)
+  system/light/dark theme toggle, instant client-side search via a
+  build-time index — no server needed)
 - `--kindle` — extra CSS to prevent `table`/`pre` overflow on e-readers
 - `--validate` — run `epubcheck` on the EPUB after building, when installed
   (`brew install epubcheck`)
