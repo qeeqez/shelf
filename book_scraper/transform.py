@@ -184,6 +184,11 @@ class Transformer:
 
         content_root.rewrite_links(self._link_replace)
 
+        # Explicit empty alt marks decorative images (better than absent).
+        for img in content_root.iter("img"):
+            if img.get("alt") is None:
+                img.set("alt", "")
+
         if first_page:
             cover_img = self._find_cover_image(content_root)
             if cover_img is not None:
@@ -192,7 +197,7 @@ class Transformer:
                 cover_html = html.fromstring('<div id="Cover"></div>')
                 cover_div = cover_html.xpath("//div")[0]
                 new_img = cover_div.makeelement("img")
-                new_img.attrib.update({"src": self.cover})
+                new_img.attrib.update({"src": self.cover, "alt": "Cover"})
                 cover_div.append(new_img)
                 content_root = cover_html
 

@@ -70,6 +70,7 @@ nav.sidebar ul ul ul a{padding-left:60px}
 nav.sidebar ul ul ul ul a{padding-left:78px}
 main{padding:76px 24px 64px;margin-left:300px;transition:margin .2s ease}
 body.sidebar-hidden main{margin-left:0}
+main [id]:target{box-shadow:0 0 0 3px rgba(26,115,232,.4);border-radius:2px}
 .content{max-width:740px;margin:0 auto}
 .content img{max-width:100%;height:auto}
 .content h1{font-size:30px;line-height:1.25;margin:8px 0 24px}
@@ -143,6 +144,13 @@ padding:16px 28px}
 .content .sidebar,aside[data-type="sidebar"]{background:#f8f9fa}
 .index-hero img{box-shadow:0 2px 16px rgba(0,0,0,.5)}
 }
+@media print{
+header.top,nav.sidebar,.pager,.skip{display:none}
+main{padding:0;margin-left:0}
+.content{max-width:none;padding:0}
+figure,pre,table{break-inside:avoid}
+h1,h2,h3{break-after:avoid}
+}
 """
 
 SITE_JS = """\
@@ -172,6 +180,12 @@ SITE_JS = """\
   }
   document.addEventListener("keydown", function (e) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    var box = document.getElementById("search-box");
+    if (e.key === "/" && box) {
+      e.preventDefault();
+      box.focus();
+      return;
+    }
     var sel = e.key === "ArrowLeft" ? ".pager a.prev"
             : e.key === "ArrowRight" ? ".pager a.next" : null;
     if (!sel) return;
@@ -301,7 +315,7 @@ SITE_JS = """\
 
 PAGE = """\
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{lang}">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -469,6 +483,9 @@ def _pager(chapters, i):
 
 def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     """Emit a static site: index, toc.html, one page per chapter, assets."""
+    # web_dir is fully generated — clear it so stale pages can't linger.
+    if os.path.isdir(web_dir):
+        shutil.rmtree(web_dir)
     assets = os.path.join(web_dir, "assets")
     os.makedirs(assets, exist_ok=True)
     for sub in ("Images", "Fonts", "Styles"):
@@ -492,10 +509,13 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
 
     title = info.get("title", "Book")
 
+    lang = info.get("language") or "en"
+
     def render(
         page_title, sidebar_current, body, pager="", into="index.html", extra_head=""
     ):
-        page = PAGE.replace("{page_title}", escape(page_title))
+        page = PAGE.replace("{lang}", escape(lang))
+        page = page.replace("{page_title}", escape(page_title))
         page = page.replace("{book_title}", escape(title))
         page = page.replace("{book_links}", book_links)
         page = page.replace(

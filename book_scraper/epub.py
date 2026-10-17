@@ -27,7 +27,7 @@ CONTENT_OPF = (
     ' xmlns:opf="http://www.idpf.org/2007/opf">\n'
     '<dc:identifier id="bookid">{0}</dc:identifier>\n'
     "<dc:title>{1}</dc:title>\n{2}\n"
-    "<dc:language>en-US</dc:language>\n"
+    "<dc:language>{15}</dc:language>\n"
     "{13}"
     '<meta property="dcterms:modified">{12}</meta>\n'
     '<meta property="schema:accessMode">textual,visual</meta>\n'
@@ -292,6 +292,7 @@ class EpubBuilder:
             modified,
             "\n".join(optional_dc) + "\n",
             ",MathML" if has_mathml else "",
+            escape(self.book_info.get("language") or "en-US"),
         )
 
     def _parse_toc_ncx(self, items, counter=0, max_depth=0, playorders=None):

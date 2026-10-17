@@ -141,6 +141,7 @@ class OreillyAPI:
 
         return {
             "authors": creators,
+            "language": first("language"),
             "modified": modified,
             "publishers": texts("publisher"),
             "subjects": texts("subject"),
@@ -183,6 +184,7 @@ class OreillyAPI:
             "description": description or opf.get("description"),
             "issued": data.get("publication_date", "") or opf.get("issued"),
             "modified": opf.get("modified", ""),
+            "language": opf.get("language") or "en-US",
             "web_url": C.SAFARI_BASE_URL + f"/library/view/-/{self.book_id}/",
             "subjects": subjects or opf.get("subjects"),
             "cover": data.get("cover")
