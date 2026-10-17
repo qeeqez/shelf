@@ -7,9 +7,10 @@ from urllib.parse import urljoin
 from lxml import html
 
 from . import constants as C
-from .api import ApiError, OreillyAPI
+from .api import FONT_EXTENSIONS, ApiError, OreillyAPI
 from .epub import EpubBuilder
 from .pdf import build_pdf
+from .session import AuthError
 from .transform import Transformer
 from .web import build_web
 
@@ -135,6 +136,18 @@ class BookScraper:
                 out_name, tx.render_page(page_css, xhtml, title=ch["title"])
             )
 
+        # On resume the first page is skipped before tx.parse, so recover the
+        # cover image from the previously written chapter file.
+        if not tx.cover:
+            first_file = builder.chapter_path(
+                chapters[0]["filename"].replace(".html", ".xhtml")
+            )
+            if os.path.isfile(first_file):
+                with open(first_file, encoding="utf-8") as f:
+                    m = re.search(r'src="(Images/[^"]*cover[^"]*)"', f.read())
+                    if m:
+                        tx.cover = m.group(1)
+
         # Fallback cover: use metadata cover URL when no cover page was detected
         if not tx.cover and info.get("cover"):
             content, ctype = api.get_binary(info["cover"])
@@ -155,11 +168,29 @@ class BookScraper:
 
         builder.write_named_css("BookScraper.css", tx.base_css)
 
+        # related_assets can miss package files (fonts, extra images);
+        # the files/ endpoint is the canonical list — merge both.
+        try:
+            for f in api.get_files():
+                ext = f.get("filename_ext", "").lstrip(".")
+                media_type = f.get("media_type", "")
+                if (
+                    f.get("kind") == "image" or media_type.startswith("image/")
+                ) and f.get("url"):
+                    images.append(f["url"])
+                elif (ext in FONT_EXTENSIONS or "font" in media_type) and f.get("url"):
+                    fonts.append(f["url"])
+        except (ApiError, AuthError) as exc:
+            self.log(f"  warning: could not list package files: {exc}")
+
         image_names = {_basename(u) for u in images}
         font_names = {_basename(u) for u in fonts}
         self.log(f"Downloading stylesheets ({len(tx.css)})...")
         for i, css_url in enumerate(tx.css):
             self.progress(i + 1, len(tx.css), "css")
+            target = os.path.join(builder.css_path, f"Style{i:0>2}.css")
+            if os.path.isfile(target):
+                continue
             try:
                 content, _ = api.get_binary(css_url)
                 builder.write_css(i, rewrite_css_urls(content, image_names, font_names))
@@ -170,6 +201,8 @@ class BookScraper:
         self.log(f"Downloading images ({len(images)})...")
         for i, url in enumerate(images):
             self.progress(i + 1, len(images), "images")
+            if os.path.isfile(os.path.join(builder.images_path, _basename(url))):
+                continue
             try:
                 content, _ = api.get_binary(url)
                 builder.write_image(_basename(url), content)
@@ -179,6 +212,8 @@ class BookScraper:
         fonts = list(dict.fromkeys(fonts))
         for i, url in enumerate(fonts):
             self.progress(i + 1, len(fonts), "fonts")
+            if os.path.isfile(os.path.join(builder.fonts_path, _basename(url))):
+                continue
             try:
                 content, _ = api.get_binary(url)
                 builder.write_font(_basename(url), content)

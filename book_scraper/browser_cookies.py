@@ -69,10 +69,14 @@ def _decrypt_v10(key, blob):
     pad = plain[-1]
     if 1 <= pad <= 16:
         plain = plain[:-pad]
-    try:
-        return plain.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise CookieError("cookie value is not decodable text") from exc
+    # Chromium >=130 prepends SHA-256(host_key) to the plaintext — strip it.
+    candidates = (plain, plain[32:]) if len(plain) > 32 else (plain,)
+    for candidate in candidates:
+        try:
+            return candidate.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+    raise CookieError("cookie value is not decodable text")
 
 
 def _open_db_copy(db_path):

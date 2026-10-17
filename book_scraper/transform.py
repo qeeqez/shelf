@@ -9,7 +9,8 @@ from lxml import etree, html
 PAGE_HEAD = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     "<!DOCTYPE html>\n"
-    '<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">\n'
+    '<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml"'
+    ' xmlns:epub="http://www.idpf.org/2007/ops">\n'
     "<head>\n"
 )
 

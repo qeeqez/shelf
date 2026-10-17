@@ -19,6 +19,7 @@ class AuthError(Exception):
 class OreillySession:
     COOKIE_FLOAT_MAX_AGE = re.compile(r"(max-age=\d*\.\d*)", re.IGNORECASE)
     RETRYABLE_STATUSES = (429, 500, 502, 503, 504)
+    MIN_INTERVAL = 0.1  # courtesy pacing between requests
 
     def __init__(self, cookies_file):
         self.cookies_file = cookies_file
@@ -26,6 +27,7 @@ class OreillySession:
             headers=C.HEADERS, timeout=30.0, follow_redirects=False
         )
         self.jwt = {}
+        self._last_request = 0.0
 
     # -- low-level request handling ----------------------------------------
 
@@ -36,26 +38,39 @@ class OreillySession:
                 key, value = header.split(";")[0].split("=", 1)
                 self.client.cookies.set(key, value)
 
-    def request(self, url, is_post=False, perform_redirect=True, retries=3, **kwargs):
+    def request(
+        self,
+        url,
+        is_post=False,
+        perform_redirect=True,
+        retries=3,
+        retry_403=False,
+        **kwargs,
+    ):
+        # 403 means "expired/unauthorized" at auth-check time, but Akamai also
+        # returns it for rate throttling mid-download — retry only if asked.
+        retryable = self.RETRYABLE_STATUSES + ((403,) if retry_403 else ())
         response = None
         for attempt in range(retries):
+            elapsed = time.time() - self._last_request
+            if elapsed < self.MIN_INTERVAL:
+                time.sleep(self.MIN_INTERVAL - elapsed)
             try:
                 response = self.client.request(
                     "POST" if is_post else "GET", url, **kwargs
                 )
             except httpx.TransportError as exc:
+                self._last_request = time.time()
                 if attempt == retries - 1:
                     raise AuthError(f"Unable to reach {url}: {exc}") from exc
                 time.sleep(1 + attempt)
                 continue
             except UnicodeError as exc:
                 raise AuthError(f"Bad cookie data in session: {exc}") from exc
-            if (
-                response.status_code in self.RETRYABLE_STATUSES
-                and attempt < retries - 1
-            ):
+            self._last_request = time.time()
+            if response.status_code in retryable and attempt < retries - 1:
                 retry_after = response.headers.get("retry-after")
-                delay = float(retry_after) if retry_after else 1 + attempt
+                delay = float(retry_after) if retry_after else 2**attempt + 1.0
                 time.sleep(delay)
                 continue
             break
@@ -65,7 +80,11 @@ class OreillySession:
         if response.is_redirect and perform_redirect:
             location = urljoin(url, response.headers["location"])
             return self.request(
-                location, is_post=False, perform_redirect=True, retries=retries
+                location,
+                is_post=False,
+                perform_redirect=True,
+                retries=retries,
+                retry_403=retry_403,
             )
         return response
 
@@ -82,8 +101,11 @@ class OreillySession:
             return False
 
     def save_cookies(self):
+        cookies = {}
+        for c in self.client.cookies.jar:
+            cookies[c.name] = c.value  # dedupe names repeated across domains
         with open(self.cookies_file, "w") as f:
-            json.dump(dict(self.client.cookies), f, indent=2)
+            json.dump(cookies, f, indent=2)
 
     def import_cookies(self, cookies):
         """cookies: dict, or a 'name=value; name2=value2' header string."""
