@@ -81,6 +81,12 @@ class TestSidebar:
         out = _sidebar_ul(TOC, _first_stem_match(TOC, None))
         assert 'class="active"' not in out
 
+    def test_chapters_prefix_applied(self):
+        """Root pages (index/toc) link into chapters/; chapter pages don't."""
+        out = _sidebar_ul(TOC, None, "chapters/")
+        assert 'href="chapters/preface01.html"' in out
+        assert 'href="chapters/preface01.html#preface_sub"' in out
+
     def test_container_heading_renders_span(self):
         """An href-less TOC entry used to produce href=".html" — a dead link."""
         items = [
@@ -190,6 +196,19 @@ class TestChapterBody:
         styles, body = _chapter_body(str(tmp_path / "cover.xhtml"))
         assert "display:table" in styles
         assert 'id="Cover"' in body
+
+    def test_asset_paths_bumped_for_chapters_dir(self, tmp_path):
+        """Chapter pages sit in chapters/ — Images/, Fonts/, Styles/ refs
+        must be rewritten to ../ so they resolve at the web root."""
+        (tmp_path / "ch01.xhtml").write_text(
+            '<?xml version="1.0"?><html><body><div class="chapter" id="c">'
+            '<img src="Images/i.png"/><a href="Fonts/f.otf">f</a>'
+            '<a href="ch02.xhtml">next</a></div></body></html>'
+        )
+        _, body = _chapter_body(str(tmp_path / "ch01.xhtml"))
+        assert 'src="../Images/i.png"' in body
+        assert 'href="../Fonts/f.otf"' in body
+        assert 'href="ch02.html"' in body  # same-dir link stays flat
 
     def test_body_style_not_duplicated(self, tmp_path):
         """A <style> inside <body> ships in body_html already — hoisting it

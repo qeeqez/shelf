@@ -112,6 +112,10 @@ Books/<Book Title>.pdf                 # with --pdf
 Books/<Book Title> (<id>)/
   OEBPS/                               # unpacked EPUB content
   web/                                 # the static site, with --web
+    index.html                         # open this — the book's landing page
+    toc.html                           # full table of contents
+    chapters/                          # one page per chapter
+    assets/  Images/  Styles/  Fonts/  # site assets + book files
   .cache/                              # raw chapter HTML (offline re-transforms)
   meta.json                            # download manifest — enables offline rebuilds
 ```

@@ -393,11 +393,15 @@ SITE_JS = """\
   var res = document.getElementById("search-results");
   var idx = null, idxLoading = false, sel = -1;
 
+  // Root prefix for root-relative paths: "" on index/toc, "../" inside chapters/.
+  var script = document.currentScript;
+  var root = (script && script.getAttribute("data-root")) || "";
+
   function ensureIndex() {
     if (idx || idxLoading) return;
     idxLoading = true;
     var s = document.createElement("script");
-    s.src = "assets/search-index.js";
+    s.src = root + "assets/search-index.js";
     s.onload = function () {
       idx = window.SHELF_SEARCH || [];
       for (var i = 0; i < idx.length; i++) {
@@ -460,7 +464,9 @@ SITE_JS = """\
     }
     out.slice(0, 20).forEach(function (r) {
       var a = document.createElement("a");
-      a.href = r.e.u;
+      // Index entries store bare chapter names; from inside chapters/ the
+      // "../" root prefix lands back in the same directory.
+      a.href = root + "chapters/" + r.e.u;
       a.className = "result";
       a.setAttribute("role", "option");
       var t = document.createElement("div");
@@ -608,7 +614,7 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme:light)"/>
 <meta name="theme-color" content="#17181a" media="(prefers-color-scheme:dark)"/>
 <title>{page_title}</title>
-{book_links}<link rel="stylesheet" href="assets/site.css"/>
+{book_links}<link rel="stylesheet" href="{root}assets/site.css"/>
 {favicon}{extra_head}
 </head>
 <body>
@@ -619,7 +625,7 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
  viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"
  stroke-linecap="round" aria-hidden="true"><path
  d="M2 4h12M2 8h12M2 12h12"/></svg></button>
-<span class="booktitle"><a href="index.html">{book_title}</a></span>
+<span class="booktitle"><a href="{root}index.html">{book_title}</a></span>
 <span class="spacer"></span>
 <div class="search" role="search">
 <input id="search-box" type="search" placeholder="Search book…"
@@ -634,7 +640,7 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
  10.5"/></svg></button>
 <button id="theme-btn" aria-label="Theme: system"
  title="Theme: system">&#9680;</button>
-<a class="toc-link" href="toc.html">Contents</a>
+<a class="toc-link" href="{root}toc.html">Contents</a>
 </header>
 <div class="scrim" id="scrim"></div>
 <nav class="sidebar" id="sidebar" aria-label="Table of contents">{sidebar}</nav>
@@ -644,7 +650,7 @@ try{if(localStorage.getItem("shelf-wide")==="1")document.documentElement.dataset
 </div>
 {pager}
 </main>
-<script src="assets/site.js"></script>
+<script src="{root}assets/site.js" data-root="{root}"></script>
 </body>
 </html>
 """
@@ -669,6 +675,10 @@ def _rewrite_links(body):
             a.attrib["href"] = _page_name(base) + frag
 
 
+XLINK_HREF = "{http://www.w3.org/1999/xlink}href"
+ASSET_DIRS = ("Images/", "Fonts/", "Styles/")
+
+
 def _chapter_body(path):
     doc = html.parse(path).getroot()
     body = doc.find("body")
@@ -678,6 +688,22 @@ def _chapter_body(path):
     for img in body.iter("img"):
         img.set("loading", "lazy")
         img.set("decoding", "async")
+    # Chapter pages live one level down in chapters/ — root-relative asset
+    # paths (Images/x.png etc.) need the "../" bump.
+    for el in body.iter():
+        for attr in ("src", "href", "poster", XLINK_HREF):
+            v = el.get(attr)
+            if v and v.startswith(ASSET_DIRS):
+                el.set(attr, "../" + v)
+        srcset = el.get("srcset")
+        if srcset:
+            cands = []
+            for cand in srcset.split(","):
+                url, _, desc = cand.strip().partition(" ")
+                if url.startswith(ASSET_DIRS):
+                    url = "../" + url
+                cands.append((url + " " + desc).rstrip())
+            el.set("srcset", ", ".join(cands))
     # Styles living inside <body> already ride along in body_html — hoisting
     # them into extra_head as well would duplicate every rule.
     styles = "".join(
@@ -685,6 +711,8 @@ def _chapter_body(path):
         for s in doc.iter("style")
         if body not in s.iterancestors()
     )
+    # Hoisted head <link>s point at Styles/ — same "../" bump for chapter pages.
+    styles = styles.replace('href="Styles/', 'href="../Styles/')
     body_html = (body.text or "") + "".join(
         html.tostring(el, encoding="unicode") for el in body
     )
@@ -757,15 +785,17 @@ def _first_stem_match(items, stem):
     return None
 
 
-def _sidebar_ul(items, active_item):
+def _sidebar_ul(items, active_item, prefix=""):
     lis = []
     for item in items:
         cls = ' class="active" aria-current="page"' if item is active_item else ""
         children = (
-            _sidebar_ul(item["children"], active_item) if item["children"] else ""
+            _sidebar_ul(item["children"], active_item, prefix)
+            if item["children"]
+            else ""
         )
         if item["href"]:
-            href = _page_name(item["href"])
+            href = prefix + _page_name(item["href"])
             if item["fragment"]:
                 href += "#" + item["fragment"]
             label = f'<a href="{escape(href)}"{cls}>{escape(item["label"])}</a>'
@@ -812,19 +842,19 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     with open(os.path.join(assets, "site.js"), "w") as f:
         f.write(SITE_JS)
     # The book's own cover is the favicon — instantly identifiable in tabs.
-    # Generic book glyph when the book has no cover.
+    # Generic book glyph when the book has no cover. {root} resolves per page.
     if cover_src:
-        favicon = f'<link rel="icon" href="{escape(cover_src)}"/>'
+        favicon = f'<link rel="icon" href="{{root}}{escape(cover_src)}"/>'
     else:
         with open(os.path.join(assets, "icon.svg"), "w") as f:
             f.write(FALLBACK_ICON)
-        favicon = '<link rel="icon" href="assets/icon.svg" type="image/svg+xml"/>'
+        favicon = '<link rel="icon" href="{root}assets/icon.svg" type="image/svg+xml"/>'
 
     styles_dir = os.path.join(web_dir, "Styles")
     book_links = ""
     if os.path.isdir(styles_dir):
         book_links = "".join(
-            f'<link rel="stylesheet" href="Styles/{n}"/>\n'
+            f'<link rel="stylesheet" href="{{root}}Styles/{n}"/>\n'
             for n in sorted(os.listdir(styles_dir))
             if n.endswith(".css")
         )
@@ -834,7 +864,14 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     lang = info.get("language") or "en"
 
     def render(
-        page_title, sidebar_current, body, pager="", into="index.html", extra_head=""
+        page_title,
+        sidebar_current,
+        body,
+        pager="",
+        into="index.html",
+        extra_head="",
+        root="",
+        sidebar_prefix="",
     ):
         page = PAGE.replace("{lang}", escape(lang))
         page = page.replace("{page_title}", escape(page_title))
@@ -842,16 +879,25 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         page = page.replace("{book_links}", book_links)
         page = page.replace(
             "{sidebar}",
-            _sidebar_ul(toc_items, _first_stem_match(toc_items, sidebar_current)),
+            _sidebar_ul(
+                toc_items, _first_stem_match(toc_items, sidebar_current), sidebar_prefix
+            ),
         )
         page = page.replace("{pager}", pager)
         page = page.replace("{body}", body)
         page = page.replace("{extra_head}", extra_head)
         page = page.replace("{favicon}", favicon)
+        # {root} appears both in the template and inside injected chunks
+        # (book_links, favicon) — resolve last so nested placeholders expand.
+        page = page.replace("{root}", root)
         with open(os.path.join(web_dir, into), "w") as f:
             f.write(page)
 
-    # Chapter pages
+    # Chapter pages live under chapters/ so index.html stands alone at the
+    # web root. root="../" bumps root-relative paths; sidebar links between
+    # chapters are plain filenames (same directory).
+    chapters_dir = os.path.join(web_dir, "chapters")
+    os.makedirs(chapters_dir, exist_ok=True)
     flat = [c for c in chapters]
     for i, ch in enumerate(flat):
         path = os.path.join(oebps_dir, ch["filename"].replace(".html", ".xhtml"))
@@ -872,8 +918,9 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
             _stem(ch["filename"]),
             body,
             pager=_pager(flat, i),
-            into=_page_name(ch["filename"]),
+            into="chapters/" + _page_name(ch["filename"]),
             extra_head=styles + rel_links,
+            root="../",
         )
 
     # Client-side search index
@@ -888,8 +935,10 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         f"Table of Contents — {title}",
         None,
         "<h1>Table of Contents</h1>"
-        f'<nav aria-label="Table of contents">{_sidebar_ul(toc_items, None)}</nav>',
+        '<nav aria-label="Table of contents">'
+        f"{_sidebar_ul(toc_items, None, 'chapters/')}</nav>",
         into="toc.html",
+        sidebar_prefix="chapters/",
     )
 
     # Landing page
@@ -900,7 +949,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
     hero += f"<h1>{escape(title)}</h1>"
     if authors:
         hero += f'<p class="authors">{escape(authors)}</p>'
-    first = _page_name(flat[0]["filename"]) if flat else "toc.html"
+    first = "chapters/" + _page_name(flat[0]["filename"]) if flat else "toc.html"
     hero += f'<p><a href="{first}">Start reading &rarr;</a></p>'
     og = (
         f'<meta property="og:title" content="{escape(title)}"/>'
@@ -922,6 +971,7 @@ def build_web(oebps_dir, chapters, toc_items, info, web_dir, cover_src=None):
         f'<div class="index-hero">{hero}</div>',
         into="index.html",
         extra_head=og,
+        sidebar_prefix="chapters/",
     )
 
     return web_dir
