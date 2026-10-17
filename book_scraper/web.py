@@ -43,7 +43,17 @@ scrollbar-color:var(--muted) transparent}
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg);font-size:17px;
 line-height:1.65;text-size-adjust:100%;overflow-x:hidden}
-a{color:var(--accent);text-decoration:none}
+a{color:var(--accent);text-decoration:none;transition:color .15s ease}
+body,header.top,.search-results,.pager{
+transition:background-color .25s ease,border-color .25s ease}
+nav.sidebar li a{position:relative;
+transition:background-color .15s ease,color .15s ease}
+nav.sidebar li a.spy{color:var(--accent);font-weight:600}
+nav.sidebar li a.spy::before{content:"";position:absolute;left:10px;
+top:22%;bottom:22%;width:3px;border-radius:2px;background:var(--accent);
+animation:spyin .18s ease}
+@keyframes spyin{from{transform:scaleY(.3);opacity:0}
+to{transform:scaleY(1);opacity:1}}
 .skip{position:absolute;left:-9999px;top:0;z-index:50}
 .skip:focus{left:8px;top:8px;background:var(--accent);color:#fff;
 padding:8px 14px;border-radius:6px}
@@ -85,6 +95,9 @@ overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;
 .search-results .r-snip mark{background:var(--mark);color:var(--mark-fg);
 padding:0 1px;border-radius:2px}
 .search-results .no-results{padding:14px;color:var(--muted);font-size:14px}
+@keyframes dropin{from{opacity:0;transform:translateY(-5px)}
+to{opacity:1;transform:none}}
+.search-results{animation:dropin .15s ease}
 @media (max-width:640px){
 #search-box{width:110px}
 .search-results{position:fixed;top:56px;left:8px;right:8px;width:auto}
@@ -109,8 +122,17 @@ nav.sidebar ul ul ul ul a{padding-left:78px}
 main{padding:76px 24px 64px;margin-left:300px;transition:margin .2s ease}
 body.sidebar-hidden main{margin-left:0}
 .content{max-width:740px;margin:0 auto;background:var(--card-bg);
-color:var(--card-fg);border-radius:var(--card-r);padding:var(--card-pad)}
+color:var(--card-fg);border-radius:var(--card-r);padding:var(--card-pad);
+transition:background-color .25s ease,color .25s ease,filter .3s ease}
 .content a{color:var(--content-accent)}
+.content .anchor{opacity:0;margin-left:.35em;font-size:.75em;
+font-weight:400;color:var(--content-muted);text-decoration:none;
+transition:opacity .15s ease}
+.content h1:hover .anchor,.content h2:hover .anchor,
+.content h3:hover .anchor,.content h4:hover .anchor,
+.content .anchor:focus{opacity:1}
+.content .anchor.copied{color:#188038}
+@media (hover:none){.content .anchor{opacity:.5}}
 .content img{max-width:100%;height:auto}
 .content h1{font-size:30px;line-height:1.25;margin:8px 0 24px}
 .content h2{font-size:24px;margin:36px 0 12px}
@@ -172,11 +194,15 @@ header.top .booktitle{display:none}
 :root:not([data-theme="light"]) .content{filter:invert(1) hue-rotate(180deg)}
 }
 @media print{
-header.top,nav.sidebar,.pager,.skip{display:none}
+header.top,nav.sidebar,.pager,.skip,.anchor{display:none}
 main{padding:0;margin-left:0}
 .content{max-width:none;padding:0;filter:none !important}
 figure,pre,table{break-inside:avoid}
 h1,h2,h3{break-after:avoid}
+}
+@media (prefers-reduced-motion:reduce){
+*,::before,::after{animation-duration:.01ms !important;
+animation-iteration-count:1 !important;transition-duration:.01ms !important}
 }
 """
 
@@ -391,6 +417,92 @@ SITE_JS = """\
     document.addEventListener("click", function (e) {
       if (!res.contains(e.target) && e.target !== box) hideResults();
     });
+  }
+
+  // -- heading anchors ------------------------------------------------------
+  var copyText = function (t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t);
+      return;
+    }
+    var ta = document.createElement("textarea");
+    ta.value = t;
+    ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+  };
+  document
+    .querySelectorAll(".content h1,.content h2,.content h3,.content h4")
+    .forEach(function (h) {
+      var host = h.id ? h : h.closest("[id]");
+      if (!host) return;
+      var a = document.createElement("a");
+      a.className = "anchor";
+      a.href = "#" + host.id;
+      a.textContent = "#";
+      a.title = "Copy link to this section";
+      a.setAttribute("aria-label", "Copy link to this section");
+      a.addEventListener("click", function (e) {
+        e.preventDefault();
+        location.hash = host.id;
+        copyText(location.href.split("#")[0] + "#" + host.id);
+        a.classList.add("copied");
+        a.textContent = "✓";
+        setTimeout(function () {
+          a.classList.remove("copied");
+          a.textContent = "#";
+        }, 1200);
+      });
+      h.appendChild(a);
+    });
+
+  // -- scroll spy -----------------------------------------------------------
+  var page = location.pathname.split("/").pop() || "index.html";
+  var spyLinks = [], spyEls = [];
+  document.querySelectorAll("nav.sidebar a[href]").forEach(function (a) {
+    var href = a.getAttribute("href"), i = href.indexOf("#");
+    if (i < 0) return;
+    var p = href.slice(0, i);
+    if (p && p !== page) return;
+    var el = document.getElementById(decodeURIComponent(href.slice(i + 1)));
+    if (!el) return;
+    spyLinks.push(a);
+    spyEls.push(el);
+  });
+  var spyCur = null, spyTick = false;
+  var spyNav = document.querySelector("nav.sidebar");
+  function spyUpdate() {
+    spyTick = false;
+    var cur = null;
+    for (var i = 0; i < spyEls.length; i++) {
+      if (spyEls[i].getBoundingClientRect().top <= 88) cur = spyLinks[i];
+      else break;
+    }
+    if (cur === spyCur) return;
+    if (spyCur) spyCur.classList.remove("spy");
+    spyCur = cur;
+    if (spyCur) {
+      spyCur.classList.add("spy");
+      var r = spyCur.getBoundingClientRect();
+      var b = spyNav.getBoundingClientRect();
+      if (r.top < b.top + 4 || r.bottom > b.bottom - 4)
+        spyCur.scrollIntoView({ block: "nearest" });
+    }
+  }
+  if (spyEls.length) {
+    window.addEventListener(
+      "scroll",
+      function () {
+        if (!spyTick) {
+          spyTick = true;
+          requestAnimationFrame(spyUpdate);
+        }
+      },
+      { passive: true }
+    );
+    spyUpdate();
   }
 })();
 """
